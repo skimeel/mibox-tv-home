@@ -49,8 +49,8 @@ Undo everything with `tools/restore.sh <the same list>`.
 | Path | What it is |
 |---|---|
 | [PROMPT.md](PROMPT.md) | The prompt for Claude Code / any coding agent |
-| [launcher/](launcher/) | The home screen. 4.7 MB including the wallpapers; plain Android, no network, no background services |
-| [launcher/res/values/config.xml](launcher/res/values/config.xml) | Dock apps, hidden apps, Live TV app, grid columns |
+| [launcher/](launcher/) | The home screen, including the wallpapers; plain Android, no background services. Its only network use is the weather |
+| [launcher/res/values/config.xml](launcher/res/values/config.xml) | Dock apps, Live TV app, weather location, verse list |
 | [tools/tv.py](tools/tv.py) | Pure-Python ADB client: shell, batch, screenshots, chunked APK push |
 | [tools/find-tv.sh](tools/find-tv.sh) | Finds Android TVs on your Wi-Fi |
 | [tools/type.sh](tools/type.sh) | Type into the TV's on-screen keyboard from your laptop (`tools/type.sh` alone prompts hidden, for passwords) |
@@ -59,13 +59,15 @@ Undo everything with `tools/restore.sh <the same list>`.
 
 ## The launcher
 
-- Clock, greeting and date top-left. Frosted pills top-right for **Inputs** (HDMI/AV/Live TV
-  dropdown; the remote's Menu key opens it too), **Wi-Fi** (shows the network name) and **Settings**.
-- A dock of your favourite apps. The focused app's name appears above it over a glow coloured from
-  its banner. Press Down for every other app in a grid.
+- Clock, greeting, date and the weather (Open-Meteo, refreshed at most every 30 minutes while the
+  home screen is in front) top-left. The Wi-Fi network name top-right. The remote's Menu key opens
+  an **Inputs** dropdown (HDMI/AV/Live TV, or Settings when there are none).
+- A verse of the day lower-left, one of 30 public-domain World English Bible verses chosen by date.
+- A dock of your favourite apps, the only thing the D-pad moves between. The focused app's name
+  appears above it over a glow coloured from its banner.
 - 12 nature photos crossfade every 10 minutes, with a scrim so text stays readable. Swap them in
   `launcher/assets/wallpapers/` (1920×1080 JPEGs, credits in `launcher/WALLPAPER-CREDITS.md`).
-- Deterministic D-pad focus, remembers the last tile, picks up newly installed apps on return.
+- Deterministic D-pad focus, remembers the last dock app, picks up newly installed apps on return.
 
 Change the dock: edit `config.xml`, then run `launcher/build-and-install.sh`.
 

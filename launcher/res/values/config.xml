@@ -16,10 +16,6 @@
         <item>org.smarttube.stable</item>
     </string-array>
 
-    <!-- Never shown as tiles: system helpers, and the Live TV app (it's in the Inputs menu). -->
-    <string-array name="hidden_apps">
-    </string-array>
-
     <!-- The TV's Live TV / tuner app, listed last in the Inputs menu. Empty to leave it out.
          Common ones: com.tcl.tv (TCL), com.mediatek.wwtv.tvcenter (Xiaomi, many MediaTek sets),
          com.google.android.tv (Google Live Channels), com.sony.dtv.tvx (Sony). -->
@@ -28,6 +24,13 @@
     <!-- The manufacturer's own source picker, used if switching to an input directly fails. -->
     <string name="input_picker_package" translatable="false"></string>
 
-    <!-- Tiles per row in the grid. -->
-    <integer name="columns">5</integer>
+    <!-- Weather line under the date, from Open-Meteo (no key). Timezone sets which day's high/low. -->
+    <string name="weather_city" translatable="false">Melbourne</string>
+    <string name="weather_latitude" translatable="false">-37.8136</string>
+    <string name="weather_longitude" translatable="false">144.9631</string>
+    <string name="weather_timezone" translatable="false">Australia/Melbourne</string>
+
+    <!-- Verse of the day: a bundled tab-separated list in assets, and the translation shown on the card. -->
+    <string name="verse_file" translatable="false">verses/web.tsv</string>
+    <string name="verse_translation" translatable="false">World English Bible</string>
 </resources>

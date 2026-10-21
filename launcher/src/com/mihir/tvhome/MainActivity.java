@@ -8,6 +8,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
@@ -22,6 +23,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
@@ -42,6 +45,17 @@ import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.TextView;
 
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -55,17 +69,17 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Apple TV style home screen: clock top-left, pills top-right, the focused dock app's name over an
- * ambient glow, a dock of pinned apps, and every other app in a grid that scrolls up on Down.
- * Plain framework views only (no AndroidX), no network, no background work.
+ * Apple TV style home dashboard over rotating nature photos: clock, date and weather top-left, the
+ * Wi-Fi name top-right, a verse of the day lower-left, and a dock of pinned apps that is the only
+ * thing the D-pad moves between. Plain framework views only (no AndroidX), no background work; the
+ * only network use is the weather, fetched while the launcher is in front.
  */
 public class MainActivity extends Activity {
 
-    // Dock, hidden apps, Live TV and grid width come from res/values/config.xml.
+    // Dock, Live TV, weather and verse settings come from res/values/config.xml.
     private String[] dockApps;
-    private final Set<String> hidden = new HashSet<>();
     private String liveTvPkg, inputPickerPkg;
-    private int cols;
+    private String weatherCity, weatherLat, weatherLon, weatherTz, verseTranslation;
 
     static final class App {
         String pkg, label;
@@ -77,23 +91,26 @@ public class MainActivity extends Activity {
 
     private final Map<String, Integer> colorCache = new HashMap<>();
     private final List<View> dockCards = new ArrayList<>();
-    private final List<View> gridCards = new ArrayList<>();
-    private final List<View> pills = new ArrayList<>();
 
-    private HomeScrollView scroll;
-    private LinearLayout content, dockRow;
     private FrameLayout hero;
-    private LinearLayout grid;
+    private View header, verseCard;
+    private LinearLayout dockRow;
     private View glow;
     private ImageView wallBack, wallFront;
-    private View gridShade;
     private String[] wallpapers = new String[0];
     private int wallIndex = -1;
     private long wallChangedAt;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable rotateWallpaper = this::nextWallpaper;
     static final long WALLPAPER_INTERVAL_MS = 10 * 60 * 1000;
-    private TextView greeting, clock, ampm, date, title, wifiPill, appsLabel;
+    static final long WEATHER_INTERVAL_MS = 30 * 60 * 1000;
+    // A reading older than this shows as unavailable rather than passing for current weather.
+    static final long WEATHER_STALE_MS = 90 * 60 * 1000;
+    static final long DAY_MS = 24 * 60 * 60 * 1000;
+    private TextView greeting, clock, ampm, date, weather, title, wifiPill, verseText, verseRef;
+    private final List<String[]> verses = new ArrayList<>();
+    private long verseDay = -1;
+    private boolean weatherBusy;
     private int glowColor = 0xFF3A3A3A;
     private ValueAnimator glowAnim;
     private int lastFocusedId = View.NO_ID;
@@ -101,8 +118,9 @@ public class MainActivity extends Activity {
     private int packageSeq;
     private PopupWindow inputsPopup;
 
+    // Registered only while resumed, so the weather check it runs happens only in the foreground.
     private final BroadcastReceiver tick = new BroadcastReceiver() {
-        @Override public void onReceive(Context c, Intent i) { updateClock(); updateWifi(); }
+        @Override public void onReceive(Context c, Intent i) { updateClock(); updateWifi(); updateWeather(); }
     };
     private final BroadcastReceiver packages = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) { buildApps(); }
@@ -114,11 +132,14 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         dockApps = getResources().getStringArray(R.array.dock_apps);
-        hidden.addAll(Arrays.asList(getResources().getStringArray(R.array.hidden_apps)));
-        hidden.add(getPackageName());
         liveTvPkg = getString(R.string.live_tv_package);
         inputPickerPkg = getString(R.string.input_picker_package);
-        cols = getResources().getInteger(R.integer.columns);
+        weatherCity = getString(R.string.weather_city);
+        weatherLat = getString(R.string.weather_latitude);
+        weatherLon = getString(R.string.weather_longitude);
+        weatherTz = getString(R.string.weather_timezone);
+        verseTranslation = getString(R.string.verse_translation);
+        loadVerses(getString(R.string.verse_file));
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
@@ -140,9 +161,11 @@ public class MainActivity extends Activity {
         tf.addAction(Intent.ACTION_TIME_CHANGED);
         tf.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         tf.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
+        tf.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
         registerReceiver(tick, tf);
         updateClock();
         updateWifi();
+        updateWeather();
         View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
         if (last == null && !dockCards.isEmpty()) last = dockCards.get(0);
         if (last != null) last.requestFocus();
@@ -174,13 +197,11 @@ public class MainActivity extends Activity {
         // Home pressed while already home: jump back to the first dock app.
         if (inputsPopup != null) inputsPopup.dismiss();
         if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
-        scroll.smoothScrollTo(0, 0);
     }
 
     @Override
     public void onBackPressed() {
-        // Home has nowhere to go back to; Back from the grid returns to the dock.
-        if (scroll.getScrollY() > 0 && !dockCards.isEmpty()) dockCards.get(0).requestFocus();
+        // Home has nowhere to go back to.
     }
 
     // ---------------------------------------------------------------- layout
@@ -194,48 +215,35 @@ public class MainActivity extends Activity {
         wallFront = wallpaperLayer();
         root.addView(wallBack, new FrameLayout.LayoutParams(-1, -1));
         root.addView(wallFront, new FrameLayout.LayoutParams(-1, -1));
-        // Scrim: darker at the top (clock, pills) and bottom (dock) so text stays readable.
+        // Scrim: darker at the top (clock, weather) and bottom (verse, dock) so text stays readable.
         View scrim = new View(this);
         scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{0xB3000000, 0x40000000, 0x26000000, 0x8C000000, 0xE6000000}));
         root.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
-        gridShade = new View(this);
-        gridShade.setBackgroundColor(0xB3000000);
-        gridShade.setAlpha(0f);
-        root.addView(gridShade, new FrameLayout.LayoutParams(-1, -1));
         try {
             wallpapers = getAssets().list("wallpapers");
-        } catch (java.io.IOException ignored) { }
+        } catch (IOException ignored) { }
 
         glow = new View(this);
         root.addView(glow, new FrameLayout.LayoutParams(-1, -1));
         setGlow(glowColor);
 
-        scroll = new HomeScrollView(this);
-        scroll.setVerticalScrollBarEnabled(false);
-        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        scroll.setFillViewport(true);
-        root.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
-
-        content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setClipChildren(false);
-        content.setClipToPadding(false);
-        scroll.addView(content, new FrameLayout.LayoutParams(-1, -2));
-
-        // Hero: exactly one screen tall, header on top, title + dock at the bottom.
+        // Hero: the whole screen, header on top, verse, title and dock at the bottom.
         hero = new FrameLayout(this);
         hero.setClipChildren(false);
-        int screenH = getResources().getDisplayMetrics().heightPixels;
-        content.addView(hero, new LinearLayout.LayoutParams(-1, screenH));
+        root.addView(hero, new FrameLayout.LayoutParams(-1, -1));
 
-        hero.addView(buildHeader(), lp(-1, -2, Gravity.TOP, dp(48), dp(36), dp(48), 0));
+        header = buildHeader();
+        hero.addView(header, lp(-1, -2, Gravity.TOP, dp(48), dp(36), dp(48), 0));
 
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(LinearLayout.VERTICAL);
         bottom.setClipChildren(false);
         bottom.setClipToPadding(false);
         hero.addView(bottom, lp(-1, -2, Gravity.BOTTOM, dp(48), 0, dp(48), dp(30)));
+
+        verseCard = buildVerseCard();
+        bottom.addView(verseCard, llp(dp(620), -2, 0, 0, 0, dp(18)));
 
         title = text(34, "sans-serif-light", Color.WHITE);
         title.setShadowLayer(dp(18), 0, 0, 0x66000000);
@@ -255,17 +263,6 @@ public class MainActivity extends Activity {
         band.setStroke(dp(1), 0x14FFFFFF);
         dockRow.setBackground(band);
         bottom.addView(dockRow, new LinearLayout.LayoutParams(-1, -2));
-
-        appsLabel = text(11, "sans-serif-medium", 0x99FFFFFF);
-        appsLabel.setText("ALL APPS");
-        appsLabel.setLetterSpacing(0.22f);
-        content.addView(appsLabel, llp(-2, -2, dp(68), dp(8), 0, dp(18)));
-
-        grid = new LinearLayout(this);
-        grid.setOrientation(LinearLayout.VERTICAL);
-        grid.setClipChildren(false);
-        grid.setClipToPadding(false);
-        content.addView(grid, llp(-1, -2, dp(68), 0, dp(68), dp(160)));
         return root;
     }
 
@@ -295,46 +292,47 @@ public class MainActivity extends Activity {
         date.setPadding(0, 0, dp(16), 0); // letterSpacing is not counted in the measured width
         date.setLetterSpacing(0.22f);
         left.addView(date);
-        for (TextView t : new TextView[]{greeting, clock, ampm, date}) t.setShadowLayer(dp(10), 0, dp(1), 0xB3000000);
+
+        weather = text(12, "sans-serif", 0xCCFFFFFF);
+        weather.setSingleLine(true);
+        left.addView(weather, llp(-2, -2, 0, dp(10), 0, 0));
+        for (TextView t : new TextView[]{greeting, clock, ampm, date, weather}) t.setShadowLayer(dp(10), 0, dp(1), 0xB3000000);
         header.addView(left, new FrameLayout.LayoutParams(dp(420), -2, Gravity.START | Gravity.TOP));
 
-        LinearLayout right = new LinearLayout(this);
-        right.setGravity(Gravity.CENTER_VERTICAL);
-        right.setClipChildren(false);
-        TextView inputs = pill("Inputs", "⇥");
-        inputs.setOnClickListener(v -> showInputs(v));
-        wifiPill = pill("Wi-Fi", "◉");
-        wifiPill.setOnClickListener(v -> launch(new Intent(Settings.ACTION_WIFI_SETTINGS)));
-        TextView settings = pill("Settings", "⚙");
-        settings.setOnClickListener(v -> launch(new Intent(Settings.ACTION_SETTINGS)));
-        for (TextView p : new TextView[]{inputs, wifiPill, settings}) {
-            right.addView(p, llp(-2, dp(30), dp(10), 0, 0, 0));
-            pills.add(p);
-        }
-        header.addView(right, new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.TOP));
-        return header;
-    }
-
-    private TextView pill(String label, String glyph) {
-        TextView p = text(11, "sans-serif-medium", 0xE6FFFFFF);
-        p.setText(glyph + "  " + label);
-        p.setGravity(Gravity.CENTER);
-        p.setPadding(dp(14), 0, dp(14), 0);
-        p.setFocusable(true);
-        p.setId(View.generateViewId());
+        // Status only: the dock is the one place the D-pad goes. Menu on the remote opens Inputs.
+        wifiPill = text(11, "sans-serif-medium", 0xE6FFFFFF);
+        wifiPill.setGravity(Gravity.CENTER);
+        wifiPill.setPadding(dp(14), 0, dp(14), 0);
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(15));
         bg.setColor(0x66000000);
         bg.setStroke(dp(1), 0x33FFFFFF);
-        p.setBackground(bg);
-        p.setOnFocusChangeListener((v, has) -> {
-            bg.setColor(has ? 0xF2FFFFFF : 0x66000000);
-            ((TextView) v).setTextColor(has ? 0xFF111111 : 0xE6FFFFFF);
-            v.animate().scaleX(has ? 1.08f : 1f).scaleY(has ? 1.08f : 1f)
-                    .setInterpolator(new OvershootInterpolator(2f)).setDuration(220).start();
-            if (has) { lastFocusedId = v.getId(); scroll.smoothScrollTo(0, 0); fadeGlow(1f); }
-        });
-        return p;
+        wifiPill.setBackground(bg);
+        header.addView(wifiPill, new FrameLayout.LayoutParams(-2, dp(30), Gravity.END | Gravity.TOP));
+        return header;
+    }
+
+    private View buildVerseCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(24), dp(16), dp(48), dp(16));
+        // Soft dark wash, heaviest behind the text, so the verse reads on bright photos too.
+        GradientDrawable wash = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+                new int[]{0xB3000000, 0x8C000000, 0x00000000});
+        wash.setCornerRadius(dp(20));
+        card.setBackground(wash);
+
+        verseText = text(16, "serif", 0xF2FFFFFF);
+        verseText.setLineSpacing(dp(4), 1f);
+        verseText.setShadowLayer(dp(6), 0, dp(1), 0x99000000);
+        card.addView(verseText);
+
+        verseRef = text(10, "sans-serif-medium", 0xB3FFFFFF);
+        verseRef.setSingleLine(true);
+        verseRef.setPadding(0, 0, dp(16), 0); // letterSpacing is not counted in the measured width
+        verseRef.setLetterSpacing(0.2f);
+        card.addView(verseRef, llp(-2, -2, 0, dp(10), 0, 0));
+        return card;
     }
 
     // ---------------------------------------------------------------- apps
@@ -343,11 +341,13 @@ public class MainActivity extends Activity {
         PackageManager pm = getPackageManager();
         android.content.pm.ChangedPackages changed = pm.getChangedPackages(packageSeq);
         if (changed != null) packageSeq = changed.getSequenceNumber();
+        Set<String> wanted = new HashSet<>(Arrays.asList(dockApps));
         Intent q = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
         Map<String, App> byPkg = new HashMap<>();
         for (ResolveInfo ri : pm.queryIntentActivities(q, 0)) {
             ActivityInfo ai = ri.activityInfo;
-            if (hidden.contains(ai.packageName) || byPkg.containsKey(ai.packageName)) continue;
+            // Only dock apps are shown, so only their banners are loaded.
+            if (!wanted.contains(ai.packageName) || byPkg.containsKey(ai.packageName)) continue;
             App a = new App();
             a.pkg = ai.packageName;
             a.label = String.valueOf(ri.loadLabel(pm));
@@ -362,41 +362,15 @@ public class MainActivity extends Activity {
 
         List<App> dock = new ArrayList<>();
         for (String p : dockApps) if (byPkg.containsKey(p)) dock.add(byPkg.remove(p));
-        List<App> rest = new ArrayList<>(byPkg.values());
-        Collections.sort(rest, (x, y) -> x.label.compareToIgnoreCase(y.label));
 
         dockRow.removeAllViews();
-        grid.removeAllViews();
         dockCards.clear();
-        gridCards.clear();
-
         for (int i = 0; i < dock.size(); i++) {
-            View tile = tile(dock.get(i), true);
+            View tile = tile(dock.get(i));
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1f);
             p.setMargins(i == 0 ? 0 : dp(10), 0, i == dock.size() - 1 ? 0 : dp(10), 0);
             dockRow.addView(tile, p);
         }
-
-        LinearLayout row = null;
-        for (int i = 0; i < rest.size(); i++) {
-            if (i % cols == 0) {
-                row = new LinearLayout(this);
-                row.setClipChildren(false);
-                row.setClipToPadding(false);
-                grid.addView(row, llp(-1, -2, 0, 0, 0, dp(26)));
-            }
-            View tile = tile(rest.get(i), false);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1f);
-            p.setMargins(i % cols == 0 ? 0 : dp(10), 0, i % cols == cols - 1 ? 0 : dp(10), 0);
-            row.addView(tile, p);
-        }
-        // Pad the last row so tiles keep their width.
-        if (row != null) for (int i = rest.size() % cols; i != 0 && i < cols; i++) {
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, 1, 1f);
-            p.setMargins(dp(10), 0, i == cols - 1 ? 0 : dp(10), 0);
-            row.addView(new View(this), p);
-        }
-        appsLabel.setVisibility(rest.isEmpty() ? View.GONE : View.VISIBLE);
         wireFocus();
 
         if (!dock.isEmpty()) { title.setText(dock.get(0).label); setGlow(dock.get(0).color); }
@@ -405,13 +379,8 @@ public class MainActivity extends Activity {
         else if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
     }
 
-    /** A 16:9 card with the app's banner; the name shows under it while focused. */
-    private View tile(App app, boolean inDock) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setClipChildren(false);
-        box.setClipToPadding(false);
-
+    /** A 16:9 dock card with the app's banner. */
+    private View tile(App app) {
         FrameLayout card = new AspectFrame(this);
         card.setId(View.generateViewId());
         card.setFocusable(true);
@@ -449,88 +418,35 @@ public class MainActivity extends Activity {
         shine.setAlpha(0f);
         card.addView(shine, new FrameLayout.LayoutParams(-1, -1));
 
-        box.addView(card, new LinearLayout.LayoutParams(-1, -2));
-
-        TextView label = text(11, "sans-serif-medium", Color.WHITE);
-        label.setText(app.label);
-        label.setSingleLine(true);
-        label.setGravity(Gravity.CENTER);
-        label.setAlpha(0f);
-        if (!inDock) box.addView(label, llp(-1, -2, 0, dp(10), 0, 0));
-
         card.setOnClickListener(v -> launch(new Intent(Intent.ACTION_MAIN)
                 .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
                 .setComponent(app.component)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)));
         card.setOnFocusChangeListener((v, has) -> {
-            float s = has ? (inDock ? 1.12f : 1.1f) : 1f;
-            v.animate().scaleX(s).scaleY(s).translationZ(has ? dp(14) : 0)
+            v.animate().scaleX(has ? 1.12f : 1f).scaleY(has ? 1.12f : 1f).translationZ(has ? dp(14) : 0)
                     .setInterpolator(has ? new OvershootInterpolator(1.8f) : new DecelerateInterpolator())
                     .setDuration(has ? 320 : 200).start();
             shine.animate().alpha(has ? 1f : 0f).setDuration(160).start();
-            label.animate().alpha(has ? 1f : 0f).translationY(has ? dp(4) : 0).setDuration(200).start();
             if (!has) return;
             lastFocusedId = v.getId();
-            if (inDock) {
-                title.setText(app.label);
-                title.animate().alpha(1f).setDuration(200).start();
-                animateGlow(app.color);
-                fadeGlow(1f);
-                scroll.smoothScrollTo(0, 0);
-            } else {
-                fadeGlow(0.35f);
-                title.animate().alpha(0f).setDuration(200).start();
-                scrollToRow(box);
-            }
+            title.setText(app.label);
+            animateGlow(app.color);
         });
 
-        (inDock ? dockCards : gridCards).add(card);
-        return box;
+        dockCards.add(card);
+        return card;
     }
 
-    /** Explicit D-pad targets: one row per press, ends of rows and of the top bar don't wrap. */
+    /** The dock is the only thing the D-pad moves between: Left/Right along it, ends don't wrap. */
     private void wireFocus() {
-        int d = dockCards.size(), g = gridCards.size();
-        for (int i = 0; i < pills.size(); i++) {
-            View p = pills.get(i);
-            p.setNextFocusLeftId(i == 0 ? p.getId() : pills.get(i - 1).getId());
-            p.setNextFocusRightId(i == pills.size() - 1 ? p.getId() : pills.get(i + 1).getId());
-            p.setNextFocusUpId(p.getId());
-            p.setNextFocusDownId(d > 0 ? dockCards.get(Math.min(d - 1, d / 2)).getId() : p.getId());
-        }
-        int topId = pills.get(0).getId();
+        int d = dockCards.size();
         for (int i = 0; i < d; i++) {
             View c = dockCards.get(i);
-            c.setNextFocusUpId(topId);
+            c.setNextFocusUpId(c.getId());
+            c.setNextFocusDownId(c.getId());
             c.setNextFocusLeftId(i == 0 ? c.getId() : dockCards.get(i - 1).getId());
             c.setNextFocusRightId(i == d - 1 ? c.getId() : dockCards.get(i + 1).getId());
-            c.setNextFocusDownId(g > 0 ? gridCards.get(Math.min(i, g - 1)).getId() : c.getId());
         }
-        int lastRow = (g - 1) / cols;
-        for (int j = 0; j < g; j++) {
-            View c = gridCards.get(j);
-            int r = j / cols, col = j % cols;
-            c.setNextFocusUpId(r == 0
-                    ? (d > 0 ? dockCards.get(Math.min(col, d - 1)).getId() : topId)
-                    : gridCards.get(j - cols).getId());
-            c.setNextFocusDownId(j + cols < g ? gridCards.get(j + cols).getId()
-                    : r < lastRow ? gridCards.get(g - 1).getId() : c.getId());
-            c.setNextFocusLeftId(col == 0 ? c.getId() : gridCards.get(j - 1).getId());
-            c.setNextFocusRightId(col == cols - 1 || j == g - 1 ? c.getId() : gridCards.get(j + 1).getId());
-        }
-    }
-
-    private void scrollToRow(View tileBox) {
-        View row = (View) tileBox.getParent();
-        int y = grid.getTop() + row.getTop();
-        int screenH = getResources().getDisplayMetrics().heightPixels;
-        // First grid row: slide the dock band up to the top edge; later rows centre on screen.
-        View band = (View) dockRow.getParent();
-        int target = grid.indexOfChild(row) == 0
-                ? hero.getTop() + band.getTop() + dockRow.getTop() - dp(22)
-                : y - (int) (screenH * 0.42f);
-        int max = Math.max(0, content.getHeight() - scroll.getHeight());
-        scroll.smoothScrollTo(0, Math.max(0, Math.min(target, max)));
     }
 
     // ---------------------------------------------------------------- inputs
@@ -578,9 +494,13 @@ public class MainActivity extends Activity {
         }
         pw.setOutsideTouchable(true);
         pw.setElevation(dp(16));
-        pw.setOnDismissListener(() -> { inputsPopup = null; anchor.requestFocus(); });
+        pw.setOnDismissListener(() -> {
+            inputsPopup = null;
+            View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
+            if (last != null) last.requestFocus();
+        });
         inputsPopup = pw;
-        pw.showAsDropDown(anchor, 0, dp(8), Gravity.START);
+        pw.showAsDropDown(anchor, 0, dp(8), Gravity.END);
         rows.get(0).requestFocus();
     }
 
@@ -619,6 +539,7 @@ public class MainActivity extends Activity {
         clock.setText(new SimpleDateFormat(is24 ? "H:mm" : "h:mm", Locale.getDefault()).format(now.getTime()));
         ampm.setText(is24 ? "" : (h < 12 ? "AM" : "PM"));
         date.setText(new SimpleDateFormat("EEEE  d MMMM", Locale.getDefault()).format(now.getTime()).toUpperCase(Locale.getDefault()));
+        updateVerse(now);
     }
 
     private void updateWifi() {
@@ -632,6 +553,131 @@ public class MainActivity extends Activity {
             }
         } catch (SecurityException ignored) { }
         wifiPill.setText("◉  " + name);
+    }
+
+    // ---------------------------------------------------------------- weather
+
+    private void updateWeather() {
+        showWeather();
+        refreshWeather();
+    }
+
+    /** The cached reading while online and recent; otherwise a quiet "unavailable". */
+    private void showWeather() {
+        SharedPreferences p = getPreferences(MODE_PRIVATE);
+        String text = p.getString("weather_text", null);
+        long age = System.currentTimeMillis() - p.getLong("weather_at", 0);
+        if (text != null && age >= 0 && age < WEATHER_STALE_MS && isOnline()) {
+            weather.setText(text);
+            weather.setTextColor(0xCCFFFFFF);
+        } else {
+            weather.setText(weatherCity + "  ·  Weather unavailable");
+            weather.setTextColor(0x66FFFFFF);
+        }
+    }
+
+    /** Ask Open-Meteo at most once per 30 minutes; called only while the launcher is resumed. */
+    private void refreshWeather() {
+        SharedPreferences p = getPreferences(MODE_PRIVATE);
+        long now = System.currentTimeMillis();
+        long since = now - p.getLong("weather_tried", 0);
+        if (weatherBusy || !isOnline() || (since >= 0 && since < WEATHER_INTERVAL_MS)) return;
+        weatherBusy = true;
+        p.edit().putLong("weather_tried", now).apply();
+        new Thread(() -> {
+            String text = fetchWeather();
+            runOnUiThread(() -> {
+                weatherBusy = false;
+                if (text != null) {
+                    p.edit().putString("weather_text", text).putLong("weather_at", System.currentTimeMillis()).apply();
+                }
+                if (!isDestroyed()) showWeather();
+            });
+        }).start();
+    }
+
+    /** One forecast request on a worker thread; null on any failure. */
+    private String fetchWeather() {
+        HttpURLConnection c = null;
+        try {
+            URL url = new URL("https://api.open-meteo.com/v1/forecast?latitude=" + weatherLat
+                    + "&longitude=" + weatherLon
+                    + "&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min"
+                    + "&forecast_days=1&timezone=" + URLEncoder.encode(weatherTz, "UTF-8"));
+            c = (HttpURLConnection) url.openConnection();
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(10000);
+            if (c.getResponseCode() != HttpURLConnection.HTTP_OK) return null;
+            StringBuilder body = new StringBuilder();
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8))) {
+                for (String line; (line = r.readLine()) != null; ) body.append(line);
+            }
+            JSONObject j = new JSONObject(body.toString());
+            JSONObject now = j.getJSONObject("current");
+            JSONObject day = j.getJSONObject("daily");
+            return String.format(Locale.getDefault(), "%s  %d°  %s  ·  H %d°  L %d°", weatherCity,
+                    Math.round(now.getDouble("temperature_2m")), describeWeather(now.getInt("weather_code")),
+                    Math.round(day.getJSONArray("temperature_2m_max").getDouble(0)),
+                    Math.round(day.getJSONArray("temperature_2m_min").getDouble(0)));
+        } catch (IOException | JSONException | RuntimeException e) {
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    /** WMO weather interpretation codes, as used by Open-Meteo. */
+    private static String describeWeather(int code) {
+        switch (code) {
+            case 0: return "Clear";
+            case 1: return "Mostly clear";
+            case 2: return "Partly cloudy";
+            case 3: return "Overcast";
+            case 45: case 48: return "Fog";
+            case 51: case 53: case 55: return "Drizzle";
+            case 56: case 57: return "Freezing drizzle";
+            case 61: return "Light rain";
+            case 63: return "Rain";
+            case 65: return "Heavy rain";
+            case 66: case 67: return "Freezing rain";
+            case 71: case 73: case 75: case 77: return "Snow";
+            case 80: case 81: return "Showers";
+            case 82: return "Heavy showers";
+            case 85: case 86: return "Snow showers";
+            case 95: return "Thunderstorms";
+            case 96: case 99: return "Thunderstorms, hail";
+            default: return "";
+        }
+    }
+
+    private boolean isOnline() {
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        NetworkInfo n = cm == null ? null : cm.getActiveNetworkInfo();
+        return n != null && n.isConnected();
+    }
+
+    // ---------------------------------------------------------------- verse
+
+    /** Bundled verses, one "reference<TAB>text" per line; lines starting with # are comments. */
+    private void loadVerses(String asset) {
+        try (BufferedReader r = new BufferedReader(new InputStreamReader(getAssets().open(asset), StandardCharsets.UTF_8))) {
+            for (String line; (line = r.readLine()) != null; ) {
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                String[] v = line.split("\t", 2);
+                if (v.length == 2) verses.add(v);
+            }
+        } catch (IOException ignored) { }
+    }
+
+    /** One verse per calendar day, the same all day, chosen by the local date. */
+    private void updateVerse(Calendar now) {
+        if (verses.isEmpty()) { verseCard.setVisibility(View.GONE); return; }
+        long day = (now.getTimeInMillis() + now.get(Calendar.ZONE_OFFSET) + now.get(Calendar.DST_OFFSET)) / DAY_MS;
+        if (day == verseDay) return;
+        verseDay = day;
+        String[] v = verses.get((int) (day % verses.size()));
+        verseText.setText(v[1]);
+        verseRef.setText((v[0] + "  ·  " + verseTranslation).toUpperCase(Locale.getDefault()));
     }
 
     // ---------------------------------------------------------------- glow
@@ -654,12 +700,6 @@ public class MainActivity extends Activity {
         glowAnim.start();
     }
 
-    private void fadeGlow(float alpha) {
-        glow.animate().alpha(alpha).setDuration(300).start();
-        // The grid sits over the photo's busiest middle part, so dim it while browsing apps.
-        gridShade.animate().alpha(alpha < 1f ? 1f : 0f).setDuration(300).start();
-    }
-
     // ---------------------------------------------------------------- wallpaper
 
     private ImageView wallpaperLayer() {
@@ -677,21 +717,52 @@ public class MainActivity extends Activity {
         getPreferences(MODE_PRIVATE).edit().putInt("wallpaper", wallIndex).apply();
         wallChangedAt = SystemClock.elapsedRealtime();
         String name = "wallpapers/" + wallpapers[wallIndex];
+        // Two thirds of the screen width: soft enough to sit under the scrim, about 1.8 MB at 1080p.
+        int targetW = Math.max(1, getResources().getDisplayMetrics().widthPixels * 2 / 3);
         new Thread(() -> {
             Bitmap bm = null;
-            try (java.io.InputStream in = getAssets().open(name)) {
-                BitmapFactory.Options o = new BitmapFactory.Options();
-                o.inPreferredConfig = Bitmap.Config.RGB_565;
-                bm = BitmapFactory.decodeStream(in, null, o);
-            } catch (java.io.IOException ignored) { }
+            try {
+                bm = decodeScaled(name, targetW);
+            } catch (IOException ignored) { }
             Bitmap result = bm;
             runOnUiThread(() -> showWallpaper(result));
         }).start();
         scheduleWallpaper(WALLPAPER_INTERVAL_MS);
     }
 
+    /** Decode at about targetW wide: subsample by powers of two, then let the decoder scale the rest. */
+    private Bitmap decodeScaled(String asset, int targetW) throws IOException {
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        try (InputStream in = getAssets().open(asset)) {
+            BitmapFactory.decodeStream(in, null, o);
+        }
+        if (o.outWidth <= 0) return null;
+        int sample = 1;
+        while (o.outWidth / (sample * 2) >= targetW) sample *= 2;
+        o.inJustDecodeBounds = false;
+        o.inSampleSize = sample;
+        o.inPreferredConfig = Bitmap.Config.RGB_565;
+        if (o.outWidth / sample > targetW) {
+            o.inScaled = true;
+            o.inDensity = o.outWidth / sample;
+            o.inTargetDensity = targetW;
+        }
+        Bitmap bm;
+        try (InputStream in = getAssets().open(asset)) {
+            bm = BitmapFactory.decodeStream(in, null, o);
+        }
+        // The scaling above stamps a made-up density on the bitmap; drop it so it draws by pixels.
+        if (bm != null) bm.setDensity(Bitmap.DENSITY_NONE);
+        return bm;
+    }
+
     private void showWallpaper(Bitmap bm) {
         if (bm == null || isDestroyed()) return;
+        // Finish any fade still running, so at most two photos (old and new) are ever held.
+        wallFront.animate().cancel();
+        wallFront.setAlpha(1f);
+        wallBack.setImageDrawable(null);
         // Swap roles: the old front becomes the back, the new photo fades in on top.
         ImageView old = wallFront;
         wallFront = wallBack;
@@ -701,13 +772,10 @@ public class MainActivity extends Activity {
         root.addView(wallFront, 1, new FrameLayout.LayoutParams(-1, -1));
         wallFront.setImageBitmap(bm);
         wallFront.setAlpha(0f);
-        wallFront.animate().alpha(1f).setDuration(firstWallpaper ? 600 : 2000).withEndAction(() -> {
+        wallFront.animate().alpha(1f).setDuration(wallBack.getDrawable() == null ? 600 : 2000).withEndAction(() -> {
             wallBack.setImageDrawable(null); // release the previous photo
         }).start();
-        firstWallpaper = false;
     }
-
-    private boolean firstWallpaper = true;
 
     private void scheduleWallpaper(long delay) {
         handler.removeCallbacks(rotateWallpaper);
@@ -748,10 +816,11 @@ public class MainActivity extends Activity {
     // ---------------------------------------------------------------- entrance
 
     private void playEntrance() {
-        View header = hero.getChildAt(0);
         header.setAlpha(0f);
         header.setTranslationY(-dp(12));
         header.animate().alpha(1f).translationY(0).setDuration(500).setStartDelay(80).start();
+        verseCard.setAlpha(0f);
+        verseCard.animate().alpha(1f).setDuration(600).setStartDelay(260).start();
         title.setAlpha(0f);
         title.animate().alpha(1f).setDuration(500).setStartDelay(200).start();
         for (int i = 0; i < dockRow.getChildCount(); i++) {
@@ -825,9 +894,9 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
-        // Menu key on the remote opens the Inputs dropdown.
-        if (e.getKeyCode() == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP && !pills.isEmpty()) {
-            showInputs(pills.get(0));
+        // Menu key on the remote opens the Inputs dropdown (it falls back to Settings).
+        if (e.getKeyCode() == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP && inputsPopup == null) {
+            showInputs(wifiPill);
             return true;
         }
         return super.dispatchKeyEvent(e);
@@ -840,11 +909,5 @@ public class MainActivity extends Activity {
             int width = MeasureSpec.getSize(w);
             super.onMeasure(w, MeasureSpec.makeMeasureSpec(width * 9 / 16, MeasureSpec.EXACTLY));
         }
-    }
-
-    /** ScrollView that never auto-scrolls to the focused child; the activity scrolls it by row. */
-    static final class HomeScrollView extends android.widget.ScrollView {
-        HomeScrollView(Context c) { super(c); }
-        @Override protected int computeScrollDeltaToGetChildRectOnScreen(android.graphics.Rect r) { return 0; }
     }
 }
