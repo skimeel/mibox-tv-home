@@ -31,6 +31,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.text.TextUtils;
 import android.text.StaticLayout;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -72,15 +73,17 @@ import java.util.Set;
 
 /**
  * Apple TV style home dashboard over rotating nature photos: clock, date and weather top-left, the
- * Wi-Fi name top-right, a verse of the day lower-left, a dock of pinned apps, and every other app
- * plus Settings in a grid that scrolls up on Down. Only the dock and grid take D-pad focus. Plain
- * framework views only (no AndroidX), no background work; the only network use is the weather,
+ * Wi-Fi network name, a verse of the day lower-left, a dock of pinned apps, and every other app
+ * plus Settings in a grid that scrolls up on Down. Wi-Fi and Settings pills top-right, the dock and
+ * the grid take D-pad focus; the weather and verse are display only. Long-press OK on an app to
+ * rearrange the dock. Plain framework views only (no AndroidX), no background work; the only network use is the weather,
  * fetched while the launcher is in front.
  */
 public class MainActivity extends Activity {
 
     // Dock, hidden apps, Live TV, grid width, weather and verse settings come from res/values/config.xml.
-    private String[] dockApps;
+    // The dock order is saved once edited; config.xml's dock_apps is the first-run default.
+    private List<String> dockOrder;
     private final Set<String> hidden = new HashSet<>();
     private String liveTvPkg, inputPickerPkg;
     private int cols;
@@ -97,6 +100,8 @@ public class MainActivity extends Activity {
     private final Map<String, Integer> colorCache = new HashMap<>();
     private final List<View> dockCards = new ArrayList<>();
     private final List<View> gridCards = new ArrayList<>();
+    private final List<View> pills = new ArrayList<>();
+    static final int DOCK_MAX = 8;
 
     private HomeScrollView scroll;
     private LinearLayout content, dockRow;
@@ -126,7 +131,7 @@ public class MainActivity extends Activity {
     private int lastFocusedId = View.NO_ID;
     private boolean firstShow = true;
     private int packageSeq;
-    private PopupWindow inputsPopup;
+    private PopupWindow popup;
 
     // Registered only while resumed, so the weather check it runs happens only in the foreground.
     private final BroadcastReceiver tick = new BroadcastReceiver() {
@@ -141,7 +146,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        dockApps = getResources().getStringArray(R.array.dock_apps);
+        String saved = getPreferences(MODE_PRIVATE).getString("dock_order", null);
+        dockOrder = new ArrayList<>(Arrays.asList(saved != null
+                ? TextUtils.split(saved, ",") : getResources().getStringArray(R.array.dock_apps)));
         hidden.addAll(Arrays.asList(getResources().getStringArray(R.array.hidden_apps)));
         hidden.add(getPackageName());
         cols = getResources().getInteger(R.integer.columns);
@@ -181,7 +188,7 @@ public class MainActivity extends Activity {
         updateWifi();
         updateWeather();
         View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
-        if (last == null && !dockCards.isEmpty()) last = dockCards.get(0);
+        if (last == null) last = homeFocus();
         if (last != null) last.requestFocus();
         // Catch installs/removals that happened while another app was in front.
         if (getPackageManager().getChangedPackages(packageSeq) != null) buildApps();
@@ -196,7 +203,7 @@ public class MainActivity extends Activity {
         super.onPause();
         handler.removeCallbacks(rotateWallpaper);
         unregisterReceiver(tick);
-        if (inputsPopup != null) inputsPopup.dismiss();
+        if (popup != null) popup.dismiss();
     }
 
     @Override
@@ -209,7 +216,7 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         // Home pressed while already home: jump back to the first dock app.
-        if (inputsPopup != null) inputsPopup.dismiss();
+        if (popup != null) popup.dismiss();
         if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
         scroll.smoothScrollTo(0, 0);
     }
@@ -252,6 +259,8 @@ public class MainActivity extends Activity {
         scroll.setVerticalScrollBarEnabled(false);
         scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
         scroll.setFillViewport(true);
+        // ScrollView makes itself focusable; never let focus park on the container instead of a tile.
+        scroll.setFocusable(false);
         root.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
 
         content = new LinearLayout(this);
@@ -343,17 +352,44 @@ public class MainActivity extends Activity {
         for (TextView t : new TextView[]{greeting, clock, ampm, date, weather}) t.setShadowLayer(dp(10), 0, dp(1), 0xB3000000);
         header.addView(left, new FrameLayout.LayoutParams(dp(420), -2, Gravity.START | Gravity.TOP));
 
-        // Status only, not focusable. Menu on the remote opens the Inputs dropdown.
-        wifiPill = text(11, "sans-serif-medium", 0xE6FFFFFF);
-        wifiPill.setGravity(Gravity.CENTER);
-        wifiPill.setPadding(dp(14), 0, dp(14), 0);
+        LinearLayout right = new LinearLayout(this);
+        right.setGravity(Gravity.CENTER_VERTICAL);
+        right.setClipChildren(false);
+        wifiPill = pill("Wi-Fi", "◉");
+        // Android 9 builds without a Wi-Fi screen get the main Settings screen instead.
+        wifiPill.setOnClickListener(v -> {
+            if (!launch(new Intent(Settings.ACTION_WIFI_SETTINGS))) launch(new Intent(Settings.ACTION_SETTINGS));
+        });
+        TextView settings = pill("Settings", "⚙");
+        settings.setOnClickListener(v -> launch(new Intent(Settings.ACTION_SETTINGS)));
+        for (TextView p : new TextView[]{wifiPill, settings}) {
+            right.addView(p, llp(-2, dp(30), dp(10), 0, 0, 0));
+            pills.add(p);
+        }
+        header.addView(right, new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.TOP));
+        return header;
+    }
+
+    private TextView pill(String label, String glyph) {
+        TextView p = text(11, "sans-serif-medium", 0xE6FFFFFF);
+        p.setText(glyph + "  " + label);
+        p.setGravity(Gravity.CENTER);
+        p.setPadding(dp(14), 0, dp(14), 0);
+        p.setFocusable(true);
+        p.setId(View.generateViewId());
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(15));
         bg.setColor(0x66000000);
         bg.setStroke(dp(1), 0x33FFFFFF);
-        wifiPill.setBackground(bg);
-        header.addView(wifiPill, new FrameLayout.LayoutParams(-2, dp(30), Gravity.END | Gravity.TOP));
-        return header;
+        p.setBackground(bg);
+        p.setOnFocusChangeListener((v, has) -> {
+            bg.setColor(has ? 0xF2FFFFFF : 0x66000000);
+            ((TextView) v).setTextColor(has ? 0xFF111111 : 0xE6FFFFFF);
+            v.animate().scaleX(has ? 1.08f : 1f).scaleY(has ? 1.08f : 1f)
+                    .setInterpolator(new OvershootInterpolator(2f)).setDuration(220).start();
+            if (has) { lastFocusedId = v.getId(); scroll.smoothScrollTo(0, 0); fadeGlow(1f); }
+        });
+        return p;
     }
 
     private View buildVerseCard() {
@@ -405,18 +441,29 @@ public class MainActivity extends Activity {
         }
 
         List<App> dock = new ArrayList<>();
-        for (String p : dockApps) if (byPkg.containsKey(p)) dock.add(byPkg.remove(p));
+        // Saved apps that are no longer installed are skipped.
+        for (String p : dockOrder) if (dock.size() < DOCK_MAX && byPkg.containsKey(p)) dock.add(byPkg.remove(p));
         List<App> rest = new ArrayList<>(byPkg.values());
         Collections.sort(rest, (x, y) -> x.label.compareToIgnoreCase(y.label));
+
+        // Note what has focus before the tiles go; removing them would otherwise hand focus to a pill.
+        View had = getCurrentFocus();
+        String keepPkg = had != null && had.getTag() instanceof App ? ((App) had.getTag()).pkg : null;
+        boolean keepPill = had != null && pills.contains(had);
 
         dockRow.removeAllViews();
         grid.removeAllViews();
         dockCards.clear();
         gridCards.clear();
 
+        // Tiles share the band, but a short dock keeps five-app-sized tiles centred rather than
+        // growing tall enough to push the dock up over the clock.
+        int band = getResources().getDisplayMetrics().widthPixels - dp(96) - dockRow.getPaddingLeft() - dockRow.getPaddingRight();
+        int slots = Math.max(dock.size(), 5);
+        int tileW = (band - (slots - 1) * dp(20)) / slots;
         for (int i = 0; i < dock.size(); i++) {
             View tile = tile(dock.get(i), true);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1f);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(tileW, -2);
             p.setMargins(i == 0 ? 0 : dp(10), 0, i == dock.size() - 1 ? 0 : dp(10), 0);
             dockRow.addView(tile, p);
         }
@@ -444,9 +491,23 @@ public class MainActivity extends Activity {
         wireFocus();
 
         if (!dock.isEmpty()) { title.setText(dock.get(0).label); setGlow(dock.get(0).color); }
-        View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
-        if (last != null) last.requestFocus();
-        else if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
+        // Keep focus on the same app (or pill) across a rebuild, else the first dock app.
+        View target = keepPill ? had : findCard(keepPkg);
+        if (target == null) target = homeFocus();
+        if (target != null) target.requestFocus();
+    }
+
+    /** The tile for a package, dock first; null if it isn't shown. */
+    private View findCard(String pkg) {
+        if (pkg == null) return null;
+        for (View c : dockCards) if (((App) c.getTag()).pkg.equals(pkg)) return c;
+        for (View c : gridCards) if (((App) c.getTag()).pkg.equals(pkg)) return c;
+        return null;
+    }
+
+    /** Where focus lands by default: the first dock app, or the first grid app if the dock is empty. */
+    private View homeFocus() {
+        return !dockCards.isEmpty() ? dockCards.get(0) : !gridCards.isEmpty() ? gridCards.get(0) : null;
     }
 
     private App app(PackageManager pm, ResolveInfo ri, Intent launch) {
@@ -517,6 +578,8 @@ public class MainActivity extends Activity {
         if (!inDock) box.addView(label, llp(-1, -2, 0, dp(10), 0, 0));
 
         card.setOnClickListener(v -> launch(new Intent(app.intent)));
+        // Long-press OK: move or remove a dock app, or add a grid app to the dock.
+        card.setOnLongClickListener(v -> { showAppMenu(v, app, inDock); return true; });
         card.setOnFocusChangeListener((v, has) -> {
             float s = has ? (inDock ? 1.12f : 1.1f) : 1f;
             v.animate().scaleX(s).scaleY(s).translationZ(has ? dp(14) : 0)
@@ -527,6 +590,8 @@ public class MainActivity extends Activity {
             if (!has) return;
             lastFocusedId = v.getId();
             if (inDock) {
+                // Down from the pills returns to the dock app focus came up from.
+                for (View p : pills) p.setNextFocusDownId(v.getId());
                 title.setText(app.label);
                 title.animate().alpha(1f).setDuration(200).start();
                 animateGlow(app.color);
@@ -544,14 +609,23 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Explicit D-pad targets over the dock and grid only (nothing above the dock is focusable):
-     * one row per press, ends of rows don't wrap, Down from the dock opens the grid.
+     * Explicit D-pad targets: pills, dock and grid, one row per press, ends of rows don't wrap.
+     * Up from the dock goes to the pills, Down from the dock opens the grid.
      */
     private void wireFocus() {
         int d = dockCards.size(), g = gridCards.size();
+        int topId = pills.get(0).getId();
+        View firstBelow = d > 0 ? dockCards.get(0) : g > 0 ? gridCards.get(0) : null;
+        for (int i = 0; i < pills.size(); i++) {
+            View p = pills.get(i);
+            p.setNextFocusLeftId(i == 0 ? p.getId() : pills.get(i - 1).getId());
+            p.setNextFocusRightId(i == pills.size() - 1 ? p.getId() : pills.get(i + 1).getId());
+            p.setNextFocusUpId(p.getId());
+            p.setNextFocusDownId(firstBelow != null ? firstBelow.getId() : p.getId());
+        }
         for (int i = 0; i < d; i++) {
             View c = dockCards.get(i);
-            c.setNextFocusUpId(c.getId());
+            c.setNextFocusUpId(topId);
             c.setNextFocusLeftId(i == 0 ? c.getId() : dockCards.get(i - 1).getId());
             c.setNextFocusRightId(i == d - 1 ? c.getId() : dockCards.get(i + 1).getId());
             c.setNextFocusDownId(g > 0 ? gridCards.get(Math.min(i, g - 1)).getId() : c.getId());
@@ -561,7 +635,7 @@ public class MainActivity extends Activity {
             View c = gridCards.get(j);
             int r = j / cols, col = j % cols;
             c.setNextFocusUpId(r == 0
-                    ? (d > 0 ? dockCards.get(Math.min(col, d - 1)).getId() : c.getId())
+                    ? (d > 0 ? dockCards.get(Math.min(col, d - 1)).getId() : topId)
                     : gridCards.get(j - cols).getId());
             c.setNextFocusDownId(j + cols < g ? gridCards.get(j + cols).getId()
                     : r < lastRow ? gridCards.get(g - 1).getId() : c.getId());
@@ -586,16 +660,6 @@ public class MainActivity extends Activity {
     // ---------------------------------------------------------------- inputs
 
     private void showInputs(View anchor) {
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(8), dp(8), dp(8), dp(8));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(16));
-        bg.setColor(0xF02A2A2E);
-        bg.setStroke(dp(1), 0x26FFFFFF);
-        list.setBackground(bg);
-
-        PopupWindow pw = new PopupWindow(list, dp(200), -2, true);
         List<TextView> rows = new ArrayList<>();
 
         TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
@@ -615,6 +679,21 @@ public class MainActivity extends Activity {
         if (inputs.isEmpty() && isInstalled(inputPickerPkg)) rows.add(inputRow("All sources…", () -> openPackage(inputPickerPkg)));
 
         if (rows.isEmpty()) rows.add(inputRow("Settings", () -> launch(new Intent(Settings.ACTION_SETTINGS))));
+        showMenu(anchor, rows, Gravity.END, false);
+    }
+
+    /** A small menu of rows under the anchor, or above it; Back or a choice closes it. */
+    private void showMenu(View anchor, List<TextView> rows, int gravity, boolean above) {
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(8), dp(8), dp(8), dp(8));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(16));
+        bg.setColor(0xF02A2A2E);
+        bg.setStroke(dp(1), 0x26FFFFFF);
+        list.setBackground(bg);
+
+        PopupWindow pw = new PopupWindow(list, dp(200), -2, true);
         for (TextView r : rows) {
             r.setOnClickListener(v -> { pw.dismiss(); ((Runnable) v.getTag()).run(); });
             list.addView(r, new LinearLayout.LayoutParams(-1, dp(36)));
@@ -629,13 +708,58 @@ public class MainActivity extends Activity {
         pw.setOutsideTouchable(true);
         pw.setElevation(dp(16));
         pw.setOnDismissListener(() -> {
-            inputsPopup = null;
+            popup = null;
             View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
             if (last != null) last.requestFocus();
         });
-        inputsPopup = pw;
-        pw.showAsDropDown(anchor, 0, dp(8), Gravity.END);
+        popup = pw;
+        int y = dp(8);
+        if (above) {
+            // Clear the focused tile's zoom too, so the menu never covers the app it is for.
+            list.measure(View.MeasureSpec.makeMeasureSpec(dp(200), View.MeasureSpec.EXACTLY), View.MeasureSpec.UNSPECIFIED);
+            y = -(anchor.getHeight() + list.getMeasuredHeight() + dp(16));
+        }
+        pw.showAsDropDown(anchor, 0, y, gravity);
         rows.get(0).requestFocus();
+    }
+
+    // ---------------------------------------------------------------- dock editing
+
+    private void showAppMenu(View card, App app, boolean inDock) {
+        List<String> shown = shownDock();
+        int i = shown.indexOf(app.pkg);
+        List<TextView> rows = new ArrayList<>();
+        if (inDock) {
+            if (i > 0) rows.add(inputRow("Move left", () -> { Collections.swap(shown, i, i - 1); saveDock(shown, app.pkg); }));
+            if (i < shown.size() - 1) rows.add(inputRow("Move right", () -> { Collections.swap(shown, i, i + 1); saveDock(shown, app.pkg); }));
+            rows.add(inputRow("Remove from dock", () -> {
+                shown.remove(i);
+                saveDock(shown, shown.isEmpty() ? null : shown.get(Math.min(i, shown.size() - 1)));
+            }));
+        } else if (shown.size() < DOCK_MAX) {
+            rows.add(inputRow("Add to dock", () -> { shown.add(app.pkg); saveDock(shown, app.pkg); }));
+        } else {
+            rows.add(inputRow("Dock is full (" + DOCK_MAX + " apps)", () -> { }));
+        }
+        // The dock sits near the bottom of the screen, so its menu opens above the tile.
+        showMenu(card, rows, Gravity.START, inDock);
+    }
+
+    /** Packages in the dock as shown now, left to right. */
+    private List<String> shownDock() {
+        List<String> shown = new ArrayList<>();
+        for (View c : dockCards) shown.add(((App) c.getTag()).pkg);
+        return shown;
+    }
+
+    /** Save the new dock order, rebuild the dock and grid, and focus the app that was acted on. */
+    private void saveDock(List<String> order, String focusPkg) {
+        dockOrder = order;
+        getPreferences(MODE_PRIVATE).edit().putString("dock_order", TextUtils.join(",", order)).apply();
+        buildApps();
+        View c = findCard(focusPkg);
+        if (c == null) c = homeFocus();
+        if (c != null) c.requestFocus();
     }
 
     private String inputLabel(TvInputInfo t) {
@@ -1053,7 +1177,7 @@ public class MainActivity extends Activity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
         // Menu key on the remote opens the Inputs dropdown (it falls back to Settings).
-        if (e.getKeyCode() == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP && inputsPopup == null) {
+        if (e.getKeyCode() == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP && popup == null) {
             showInputs(wifiPill);
             return true;
         }

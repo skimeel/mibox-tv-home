@@ -60,13 +60,16 @@ Undo everything with `tools/restore.sh <the same list>`.
 ## The launcher
 
 - Clock, greeting, date and the weather (Open-Meteo, refreshed at most every 30 minutes while the
-  home screen is in front) top-left. The Wi-Fi network name top-right. The remote's Menu key opens
-  an **Inputs** dropdown (HDMI/AV/Live TV, or Settings when there are none).
+  home screen is in front) top-left. Pills top-right for **Wi-Fi** (shows the network name, opens
+  Wi-Fi settings) and **Settings**; Up from the dock reaches them. The remote's Menu key opens an
+  **Inputs** dropdown (HDMI/AV/Live TV, or Settings when there are none).
 - A verse of the day lower-left, one of 30 public-domain World English Bible verses chosen by date.
   Verses that would need more than four lines on the card are skipped, never shortened.
 - A dock of your favourite apps. The focused app's name appears above it over a glow coloured from
-  its banner. Press Down for every other launchable app, plus Settings, in a grid. Only the dock
-  and grid take D-pad focus; the clock, weather, Wi-Fi chip and verse are display only.
+  its banner. Press Down for every other launchable app, plus Settings, in a grid. The clock,
+  weather and verse are display only.
+- Long-press OK on a dock app to move it left or right or remove it, or on a grid app to add it to
+  the dock (up to 8). The order is saved on the TV; `config.xml` is only the first-run default.
 - 12 nature photos crossfade every 10 minutes, with a scrim so text stays readable. Swap them in
   `launcher/assets/wallpapers/` (1920×1080 JPEGs, credits in `launcher/WALLPAPER-CREDITS.md`).
 - Deterministic D-pad focus, remembers the last tile, picks up newly installed apps on return.

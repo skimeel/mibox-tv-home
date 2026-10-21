@@ -4,7 +4,8 @@
   Package names: tools/venv/bin/python -I tools/tv.py 'pm list packages'
 -->
 <resources>
-    <!-- Dock apps, left to right. Apps that aren't installed are skipped. -->
+    <!-- Dock apps, left to right, for the first run (up to 8). After that the order is changed on
+         the TV with a long press on OK and saved there. Apps that aren't installed are skipped. -->
     <string-array name="dock_apps">
         <item>com.apple.atve.androidtv.appletv</item>
         <item>com.google.android.youtube.tv</item>
