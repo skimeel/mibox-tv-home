@@ -12,6 +12,7 @@ import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -24,7 +25,11 @@ import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
 import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
+import android.net.wifi.SupplicantState;
+import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
@@ -132,10 +137,24 @@ public class MainActivity extends Activity {
     private boolean firstShow = true;
     private int packageSeq;
     private PopupWindow popup;
+    // Move mode: the dock app being slid with Left/Right, its highlight, and the hint under the dock.
+    private String movingPkg;
+    private View moveRing;
+    private TextView moveHint;
 
     // Registered only while resumed, so the weather check it runs happens only in the foreground.
     private final BroadcastReceiver tick = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) { updateClock(); updateWifi(); updateWeather(); }
+    };
+    // The default network's capabilities, kept current by netCallback while the launcher is started.
+    private NetworkCapabilities netCaps;
+    private final ConnectivityManager.NetworkCallback netCallback = new ConnectivityManager.NetworkCallback() {
+        @Override public void onCapabilitiesChanged(Network n, NetworkCapabilities c) { netCaps = c; updateWifi(); }
+        @Override public void onLost(Network n) { netCaps = null; updateWifi(); }
+    };
+    // Wi-Fi radio and association changes, which tell "connecting" apart from "not connected".
+    private final BroadcastReceiver wifiState = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) { updateWifi(); }
     };
     private final BroadcastReceiver packages = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) { buildApps(); }
@@ -176,6 +195,33 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        // Network watching runs only while the launcher is started, never in the background.
+        IntentFilter wf = new IntentFilter(WifiManager.WIFI_STATE_CHANGED_ACTION);
+        wf.addAction(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION);
+        wf.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
+        registerReceiver(wifiState, wf);
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (cm != null) {
+            // Start from the current state so the pill doesn't flash "offline" until the first callback.
+            Network active = cm.getActiveNetwork();
+            netCaps = active == null ? null : cm.getNetworkCapabilities(active);
+            // Callbacks arrive on the main thread.
+            cm.registerDefaultNetworkCallback(netCallback, handler);
+        }
+        updateWifi();
+    }
+
+    @Override
+    protected void onStop() {
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        if (cm != null) cm.unregisterNetworkCallback(netCallback);
+        unregisterReceiver(wifiState);
+        super.onStop();
+    }
+
+    @Override
     protected void onResume() {
         super.onResume();
         IntentFilter tf = new IntentFilter(Intent.ACTION_TIME_TICK);
@@ -204,6 +250,7 @@ public class MainActivity extends Activity {
         handler.removeCallbacks(rotateWallpaper);
         unregisterReceiver(tick);
         if (popup != null) popup.dismiss();
+        if (movingPkg != null) finishMove(false);
     }
 
     @Override
@@ -217,6 +264,7 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         // Home pressed while already home: jump back to the first dock app.
         if (popup != null) popup.dismiss();
+        if (movingPkg != null) finishMove(false);
         if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
         scroll.smoothScrollTo(0, 0);
     }
@@ -306,6 +354,13 @@ public class MainActivity extends Activity {
         dockRow.setBackground(band);
         bottom.addView(dockRow, new LinearLayout.LayoutParams(-1, -2));
 
+        // Sits in the gap under the dock, so showing it doesn't shift the layout.
+        moveHint = text(12, "sans-serif-medium", 0xE6FFFFFF);
+        moveHint.setText("Use Left/Right to move, OK to save, Back to cancel");
+        moveHint.setShadowLayer(dp(8), 0, dp(1), 0xCC000000);
+        moveHint.setVisibility(View.GONE);
+        hero.addView(moveHint, lp(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, 0, 0, dp(7)));
+
         appsLabel = text(11, "sans-serif-medium", 0x99FFFFFF);
         appsLabel.setText("ALL APPS");
         appsLabel.setLetterSpacing(0.22f);
@@ -355,7 +410,8 @@ public class MainActivity extends Activity {
         LinearLayout right = new LinearLayout(this);
         right.setGravity(Gravity.CENTER_VERTICAL);
         right.setClipChildren(false);
-        wifiPill = pill("Wi-Fi", "◉");
+        wifiPill = pill("Wi-Fi", null); // updateWifi sets the network name and state icon
+        wifiPill.setCompoundDrawablePadding(dp(7));
         // Android 9 builds without a Wi-Fi screen get the main Settings screen instead.
         wifiPill.setOnClickListener(v -> {
             if (!launch(new Intent(Settings.ACTION_WIFI_SETTINGS))) launch(new Intent(Settings.ACTION_SETTINGS));
@@ -372,10 +428,11 @@ public class MainActivity extends Activity {
 
     private TextView pill(String label, String glyph) {
         TextView p = text(11, "sans-serif-medium", 0xE6FFFFFF);
-        p.setText(glyph + "  " + label);
+        p.setText(glyph == null ? label : glyph + "  " + label);
         p.setGravity(Gravity.CENTER);
         p.setPadding(dp(14), 0, dp(14), 0);
         p.setFocusable(true);
+        p.setDefaultFocusHighlightEnabled(false); // the pill draws its own focus state
         p.setId(View.generateViewId());
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(15));
@@ -384,7 +441,9 @@ public class MainActivity extends Activity {
         p.setBackground(bg);
         p.setOnFocusChangeListener((v, has) -> {
             bg.setColor(has ? 0xF2FFFFFF : 0x66000000);
-            ((TextView) v).setTextColor(has ? 0xFF111111 : 0xE6FFFFFF);
+            TextView t = (TextView) v;
+            t.setTextColor(has ? 0xFF111111 : 0xE6FFFFFF);
+            t.setCompoundDrawableTintList(ColorStateList.valueOf(t.getCurrentTextColor())); // icon follows the text
             v.animate().scaleX(has ? 1.08f : 1f).scaleY(has ? 1.08f : 1f)
                     .setInterpolator(new OvershootInterpolator(2f)).setDuration(220).start();
             if (has) { lastFocusedId = v.getId(); scroll.smoothScrollTo(0, 0); fadeGlow(1f); }
@@ -418,6 +477,8 @@ public class MainActivity extends Activity {
     // ---------------------------------------------------------------- apps
 
     private void buildApps() {
+        // A rebuild (say, an app installed mid-move) resets the tiles, so it ends move mode unsaved.
+        if (movingPkg != null) endMoveMode();
         PackageManager pm = getPackageManager();
         android.content.pm.ChangedPackages changed = pm.getChangedPackages(packageSeq);
         if (changed != null) packageSeq = changed.getSequenceNumber();
@@ -534,6 +595,7 @@ public class MainActivity extends Activity {
         FrameLayout card = new AspectFrame(this);
         card.setId(View.generateViewId());
         card.setFocusable(true);
+        card.setDefaultFocusHighlightEnabled(false); // the ring and zoom show focus
         card.setClickable(true);
         card.setTag(app);
         card.setClipToOutline(true);
@@ -730,8 +792,7 @@ public class MainActivity extends Activity {
         int i = shown.indexOf(app.pkg);
         List<TextView> rows = new ArrayList<>();
         if (inDock) {
-            if (i > 0) rows.add(inputRow("Move left", () -> { Collections.swap(shown, i, i - 1); saveDock(shown, app.pkg); }));
-            if (i < shown.size() - 1) rows.add(inputRow("Move right", () -> { Collections.swap(shown, i, i + 1); saveDock(shown, app.pkg); }));
+            if (shown.size() > 1) rows.add(inputRow("Move", () -> startMove(card, app.pkg)));
             rows.add(inputRow("Remove from dock", () -> {
                 shown.remove(i);
                 saveDock(shown, shown.isEmpty() ? null : shown.get(Math.min(i, shown.size() - 1)));
@@ -743,6 +804,75 @@ public class MainActivity extends Activity {
         }
         // The dock sits near the bottom of the screen, so its menu opens above the tile.
         showMenu(card, rows, Gravity.START, inDock);
+    }
+
+    /** Move mode: highlight the tile, show the hint, and let Left/Right slide it (see dispatchKeyEvent). */
+    private void startMove(View card, String pkg) {
+        movingPkg = pkg;
+        card.requestFocus();
+        GradientDrawable ring = new GradientDrawable();
+        ring.setCornerRadius(dp(10));
+        ring.setStroke(dp(4), 0xFF5AC8FA);
+        moveRing = new View(this);
+        moveRing.setBackground(ring);
+        ((ViewGroup) card).addView(moveRing, new FrameLayout.LayoutParams(-1, -1));
+        card.animate().translationY(-dp(10)).setDuration(180).start();
+        moveHint.setVisibility(View.VISIBLE);
+    }
+
+    /** Slide the moving tile one place left (-1) or right (+1), animating both tiles into place. */
+    private void moveBy(int delta) {
+        View card = findCard(movingPkg);
+        int i = dockCards.indexOf(card), j = i + delta;
+        if (i < 0 || j < 0 || j >= dockCards.size()) return;
+        View box = (View) card.getParent(), other = (View) dockCards.get(j).getParent();
+        int boxLeft = box.getLeft(), otherLeft = other.getLeft();
+        // Re-insert the neighbour on the far side, so the focused tile itself is never detached.
+        dockRow.removeView(other);
+        dockRow.addView(other, i);
+        Collections.swap(dockCards, i, j);
+        for (int k = 0; k < dockRow.getChildCount(); k++) {
+            LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) dockRow.getChildAt(k).getLayoutParams();
+            p.setMargins(k == 0 ? 0 : dp(10), 0, k == dockRow.getChildCount() - 1 ? 0 : dp(10), 0);
+        }
+        dockRow.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                dockRow.getViewTreeObserver().removeOnPreDrawListener(this);
+                for (View v : new View[]{box, other}) {
+                    v.setTranslationX((v == box ? boxLeft : otherLeft) - v.getLeft());
+                    v.animate().translationX(0).setDuration(180).setInterpolator(new DecelerateInterpolator()).start();
+                }
+                return true;
+            }
+        });
+    }
+
+    /** OK saves the new position; Back (or leaving home) puts the app back where it started. */
+    private void finishMove(boolean save) {
+        String pkg = movingPkg;
+        endMoveMode();
+        if (save) {
+            dockOrder = shownDock();
+            getPreferences(MODE_PRIVATE).edit().putString("dock_order", TextUtils.join(",", dockOrder)).apply();
+            wireFocus();
+        } else {
+            buildApps();
+        }
+        View c = findCard(pkg);
+        if (c != null) {
+            c.requestFocus();
+            for (View p : pills) p.setNextFocusDownId(c.getId());
+        }
+    }
+
+    /** Clear move mode's highlight and hint without touching the order. */
+    private void endMoveMode() {
+        View card = findCard(movingPkg);
+        movingPkg = null;
+        if (moveRing != null && moveRing.getParent() != null) ((ViewGroup) moveRing.getParent()).removeView(moveRing);
+        moveRing = null;
+        if (card != null) card.animate().translationY(0).setDuration(180).start();
+        moveHint.setVisibility(View.GONE);
     }
 
     /** Packages in the dock as shown now, left to right. */
@@ -776,6 +906,7 @@ public class MainActivity extends Activity {
         r.setGravity(Gravity.CENTER_VERTICAL);
         r.setPadding(dp(14), 0, dp(14), 0);
         r.setFocusable(true);
+        r.setDefaultFocusHighlightEnabled(false);
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(10));
         bg.setColor(Color.TRANSPARENT);
@@ -800,17 +931,57 @@ public class MainActivity extends Activity {
         updateVerse(now);
     }
 
+    /**
+     * Network name and state icon on the Wi-Fi pill: working, no internet (not validated),
+     * connecting, or not connected / Wi-Fi off. Ethernet gets its own icon when it is in use.
+     */
     private void updateWifi() {
-        String name = "Wi-Fi";
+        NetworkCapabilities c = netCaps;
+        WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+        WifiInfo info = null;
         try {
-            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
-            if (wm != null && wm.getConnectionInfo() != null) {
-                String s = wm.getConnectionInfo().getSSID();
-                if (s != null && !s.contains("unknown ssid")) name = s.replace("\"", "");
-                if (wm.getConnectionInfo().getNetworkId() == -1) name = "Offline";
-            }
+            if (wm != null) info = wm.getConnectionInfo();
         } catch (SecurityException ignored) { }
-        wifiPill.setText("◉  " + name);
+        boolean working = c != null && c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                && c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+        int icon;
+        String name;
+        boolean dim = false;
+        if (c != null && c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
+            icon = working ? R.drawable.ic_ethernet : R.drawable.ic_ethernet_alert;
+            name = "Ethernet";
+        } else if (c != null) {
+            icon = working ? R.drawable.ic_wifi : R.drawable.ic_wifi_alert;
+            name = "Wi-Fi";
+            String s = info == null ? null : info.getSSID();
+            // The name needs the location permission granted at install; otherwise it reads <unknown ssid>.
+            if (s != null && !s.contains("unknown ssid")) name = s.replace("\"", "");
+        } else if (wm != null && wm.isWifiEnabled() && info != null && isConnecting(info.getSupplicantState())) {
+            icon = R.drawable.ic_wifi;
+            dim = true;
+            name = "Connecting…";
+        } else {
+            icon = R.drawable.ic_wifi_off;
+            name = wm != null && !wm.isWifiEnabled() ? "Wi-Fi off" : "Offline";
+        }
+        Drawable d = getDrawable(icon).mutate();
+        d.setAlpha(dim ? 100 : 255);
+        d.setBounds(0, 0, dp(16), dp(16));
+        wifiPill.setCompoundDrawablesRelative(d, null, null, null);
+        wifiPill.setCompoundDrawableTintList(ColorStateList.valueOf(wifiPill.getCurrentTextColor()));
+        wifiPill.setText(name);
+    }
+
+    /** Joining a Wi-Fi network but not yet the default network (associating up to getting an address). */
+    private static boolean isConnecting(SupplicantState s) {
+        if (s == null) return false;
+        switch (s) {
+            case AUTHENTICATING: case ASSOCIATING: case ASSOCIATED:
+            case FOUR_WAY_HANDSHAKE: case GROUP_HANDSHAKE: case COMPLETED:
+                return true;
+            default:
+                return false;
+        }
     }
 
     // ---------------------------------------------------------------- weather
@@ -1176,6 +1347,20 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
+        // Move mode takes the remote: Left/Right slide, OK saves, Back cancels, Up/Down do nothing.
+        if (movingPkg != null) {
+            boolean down = e.getAction() == KeyEvent.ACTION_DOWN, up = e.getAction() == KeyEvent.ACTION_UP;
+            switch (e.getKeyCode()) {
+                case KeyEvent.KEYCODE_DPAD_LEFT: if (down) moveBy(-1); return true;
+                case KeyEvent.KEYCODE_DPAD_RIGHT: if (down) moveBy(1); return true;
+                case KeyEvent.KEYCODE_DPAD_CENTER: case KeyEvent.KEYCODE_ENTER: case KeyEvent.KEYCODE_NUMPAD_ENTER:
+                    if (up) finishMove(true);
+                    return true;
+                case KeyEvent.KEYCODE_BACK: if (up) finishMove(false); return true;
+                case KeyEvent.KEYCODE_DPAD_UP: case KeyEvent.KEYCODE_DPAD_DOWN: case KeyEvent.KEYCODE_MENU: return true;
+                default: break;
+            }
+        }
         // Menu key on the remote opens the Inputs dropdown (it falls back to Settings).
         if (e.getKeyCode() == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP && popup == null) {
             showInputs(wifiPill);
