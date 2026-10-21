@@ -4,6 +4,7 @@ tools/adbkey/
 tools/.tv_host
 launcher/debug.keystore
 launcher/esv.env
+launcher/calendar.env
 backup/
 shots/
 
