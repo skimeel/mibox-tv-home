@@ -134,6 +134,12 @@ public class MainActivity extends Activity {
     private long verseDay = -1;
     // ESV: cached passages expire after this many days (Crossway asks for periodic cache clearing).
     static final long ESV_CACHE_DAYS = 30;
+    // A failed ESV request may be retried an hour later, up to three requests a day in all.
+    static final int ESV_TRIES_PER_DAY = 3;
+    static final long ESV_RETRY_MS = 60 * 60 * 1000;
+    // The notice line runs edge to edge with this margin; it shrinks to fit, but not below the floor.
+    static final int NOTICE_SIDE_DP = 8;
+    static final float NOTICE_MAX_SP = 8f, NOTICE_MIN_SP = 5.5f;
     private TextView esvNotice;
     private boolean esvShown, esvBusy;
     private boolean weatherBusy;
@@ -368,12 +374,16 @@ public class MainActivity extends Activity {
         moveHint.setVisibility(View.GONE);
         hero.addView(moveHint, lp(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, 0, 0, dp(7)));
 
-        // Crossway's copyright notice and esv.org, in the same gap, shown whenever the card shows ESV text.
-        esvNotice = text(8, "sans-serif", 0x99FFFFFF);
-        esvNotice.setText(getString(R.string.esv_copyright) + "  ·  " + getString(R.string.esv_link));
+        // Crossway's copyright notice and esv.org: one dim line on the bottom edge, shown whenever the
+        // card shows ESV text. Only the spacing is tightened to fit; the wording is never cut.
+        esvNotice = text(8, "sans-serif-condensed", 0x73B3B3B3);
+        esvNotice.setText(getString(R.string.esv_copyright) + " · " + getString(R.string.esv_link));
+        esvNotice.setLetterSpacing(-0.01f);
         esvNotice.setGravity(Gravity.CENTER);
+        esvNotice.setIncludeFontPadding(false);
         esvNotice.setVisibility(View.GONE);
-        hero.addView(esvNotice, lp(-1, -2, Gravity.BOTTOM, dp(48), 0, dp(48), dp(3)));
+        fitNoticeToOneLine();
+        hero.addView(esvNotice, lp(-1, -2, Gravity.BOTTOM, dp(NOTICE_SIDE_DP), 0, dp(NOTICE_SIDE_DP), dp(2)));
 
         appsLabel = text(11, "sans-serif-medium", 0x99FFFFFF);
         appsLabel.setText("ALL APPS");
@@ -1175,6 +1185,22 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- ESV
 
+    /**
+     * Shrink the notice in quarter steps until it fits one line across the screen. If it can't fit
+     * at the smallest legible size, it wraps instead, since its wording must never be cut off.
+     */
+    private void fitNoticeToOneLine() {
+        float avail = getResources().getDisplayMetrics().widthPixels - 2 * dp(NOTICE_SIDE_DP);
+        String t = esvNotice.getText().toString();
+        float sp = NOTICE_MAX_SP;
+        esvNotice.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        while (esvNotice.getPaint().measureText(t) > avail && sp > NOTICE_MIN_SP) {
+            sp -= 0.25f;
+            esvNotice.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
+        }
+        esvNotice.setSingleLine(esvNotice.getPaint().measureText(t) <= avail);
+    }
+
     private SharedPreferences esvPrefs() {
         return getSharedPreferences("esv", MODE_PRIVATE);
     }
@@ -1189,18 +1215,24 @@ public class MainActivity extends Activity {
 
     /**
      * Fetch today's passage from the ESV API: only with a key, only while the launcher is resumed
-     * (onResume and the minute tick call this), only if it isn't cached, and at most one request a
-     * day per key. Any failure leaves the WEB text up.
+     * (onResume and the minute tick call this), and only if it isn't cached. A success ends the day's
+     * fetching; a failure may retry an hour later, up to three requests a day per key. Any failure
+     * leaves the WEB text up.
      */
     private void refreshEsv() {
         if (EsvKey.KEY.isEmpty() || verseDay < 0 || verses.isEmpty() || esvBusy || !isOnline()) return;
         String ref = todaysVerse()[0];
         SharedPreferences p = esvPrefs();
         int keyId = EsvKey.KEY.hashCode(); // tells a rebuilt key apart without storing the key
-        if (cachedEsv(ref) != null || (p.getLong("tried_day", -1) == verseDay && p.getInt("tried_key", 0) == keyId)) return;
+        if (cachedEsv(ref) != null) return;
+        long now = System.currentTimeMillis();
+        boolean sameDay = p.getLong("tried_day", -1) == verseDay && p.getInt("tried_key", 0) == keyId;
+        int tries = sameDay ? p.getInt("tries", 0) : 0;
+        long since = now - p.getLong("tried_at", 0);
+        if (tries >= ESV_TRIES_PER_DAY || (tries > 0 && since >= 0 && since < ESV_RETRY_MS)) return;
         esvBusy = true;
         long day = verseDay;
-        p.edit().putLong("tried_day", day).putInt("tried_key", keyId).apply();
+        p.edit().putLong("tried_day", day).putInt("tried_key", keyId).putInt("tries", tries + 1).putLong("tried_at", now).apply();
         new Thread(() -> {
             int[] status = new int[1];
             String text = fetchEsv(ref, status);
