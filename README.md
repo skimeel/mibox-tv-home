@@ -85,7 +85,7 @@ Undo everything with `tools/restore.sh <the same list>`.
   its banner. Press Down for every other launchable app, plus Settings, in a grid. The clock,
   weather and verse are display only.
 - Long-press OK on a dock app for **Move** or **Remove from dock**, or on a grid app for **Add to
-  dock** (up to 8). Move works like stock Android TV: Left/Right slide the app along the dock, OK
+  dock** (up to 6). Move works like stock Android TV: Left/Right slide the app along the dock, OK
   saves, Back cancels. The order is saved on the TV; `config.xml` is only the first-run default.
 - 12 nature photos crossfade every 10 minutes, with a scrim so text stays readable. Swap them in
   `launcher/assets/wallpapers/` (1920×1080 JPEGs, credits in `launcher/WALLPAPER-CREDITS.md`).

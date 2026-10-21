@@ -94,8 +94,10 @@ import java.util.Set;
 public class MainActivity extends Activity {
 
     // Dock, hidden apps, Live TV, grid width, weather and verse settings come from res/values/config.xml.
-    // The dock order is saved once edited; config.xml's dock_apps is the first-run default.
-    private List<String> dockOrder;
+    // The dock order is saved once edited; config.xml's dock_apps is the first-run default. Apps a
+    // save left beyond the cap (or not installed) are kept in order in dockOverflow, so raising
+    // DOCK_MAX brings them back.
+    private List<String> dockOrder, dockOverflow;
     private final Set<String> hidden = new HashSet<>();
     private String liveTvPkg, inputPickerPkg;
     private int cols;
@@ -113,7 +115,7 @@ public class MainActivity extends Activity {
     private final List<View> dockCards = new ArrayList<>();
     private final List<View> gridCards = new ArrayList<>();
     private final List<View> pills = new ArrayList<>();
-    static final int DOCK_MAX = 8;
+    static final int DOCK_MAX = 6;
 
     private HomeScrollView scroll;
     private LinearLayout content, dockRow;
@@ -197,9 +199,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        String saved = getPreferences(MODE_PRIVATE).getString("dock_order", null);
+        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        String saved = prefs.getString("dock_order", null), over = prefs.getString("dock_overflow", "");
         dockOrder = new ArrayList<>(Arrays.asList(saved != null
                 ? TextUtils.split(saved, ",") : getResources().getStringArray(R.array.dock_apps)));
+        dockOverflow = new ArrayList<>(Arrays.asList(TextUtils.split(over, ",")));
+        // A saved order longer than the cap is left as it is: buildApps shows the first DOCK_MAX
+        // installed apps and the rest fall into the grid. Overflow rejoins only if the cap has grown.
+        if (DOCK_MAX > prefs.getInt("dock_cap", DOCK_MAX)) dockOrder.addAll(dockOverflow);
         hidden.addAll(Arrays.asList(getResources().getStringArray(R.array.hidden_apps)));
         hidden.add(getPackageName());
         cols = getResources().getInteger(R.integer.columns);
@@ -386,14 +393,15 @@ public class MainActivity extends Activity {
         title.setShadowLayer(dp(18), 0, 0, 0x66000000);
         title.setSingleLine(true);
         bottom.addView(title, new LinearLayout.LayoutParams(-2, -2));
-        ((LinearLayout.LayoutParams) title.getLayoutParams()).setMargins(dp(8), 0, 0, dp(14));
+        ((LinearLayout.LayoutParams) title.getLayoutParams()).setMargins(dp(8), 0, 0, dp(10));
 
         dockRow = new LinearLayout(this);
         dockRow.setOrientation(LinearLayout.HORIZONTAL);
         dockRow.setGravity(Gravity.CENTER);
         dockRow.setClipChildren(false);
         dockRow.setClipToPadding(false);
-        dockRow.setPadding(dp(20), dp(22), dp(20), dp(22));
+        // Slimmer than before around the larger six-app tiles, so a four-line verse still clears the weather line.
+        dockRow.setPadding(dp(20), dp(16), dp(20), dp(16));
         GradientDrawable band = new GradientDrawable();
         band.setCornerRadius(dp(26));
         band.setColor(0x1FFFFFFF);
@@ -578,11 +586,9 @@ public class MainActivity extends Activity {
         dockCards.clear();
         gridCards.clear();
 
-        // Tiles share the band, but a short dock keeps five-app-sized tiles centred rather than
-        // growing tall enough to push the dock up over the clock.
+        // Tiles are sized for a full dock of DOCK_MAX apps; a shorter dock keeps that size, centred.
         int band = getResources().getDisplayMetrics().widthPixels - dp(96) - dockRow.getPaddingLeft() - dockRow.getPaddingRight();
-        int slots = Math.max(dock.size(), 5);
-        int tileW = (band - (slots - 1) * dp(20)) / slots;
+        int tileW = (band - (DOCK_MAX - 1) * dp(20)) / DOCK_MAX;
         for (int i = 0; i < dock.size(); i++) {
             View tile = tile(dock.get(i), true);
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(tileW, -2);
@@ -856,10 +862,10 @@ public class MainActivity extends Activity {
             if (shown.size() > 1) rows.add(inputRow("Move", () -> startMove(card, app.pkg)));
             rows.add(inputRow("Remove from dock", () -> {
                 shown.remove(i);
-                saveDock(shown, shown.isEmpty() ? null : shown.get(Math.min(i, shown.size() - 1)));
+                saveDock(shown, shown.isEmpty() ? null : shown.get(Math.min(i, shown.size() - 1)), app.pkg);
             }));
         } else if (shown.size() < DOCK_MAX) {
-            rows.add(inputRow("Add to dock", () -> { shown.add(app.pkg); saveDock(shown, app.pkg); }));
+            rows.add(inputRow("Add to dock", () -> { shown.add(app.pkg); saveDock(shown, app.pkg, null); }));
         } else {
             rows.add(inputRow("Dock is full (" + DOCK_MAX + " apps)", () -> { }));
         }
@@ -914,8 +920,7 @@ public class MainActivity extends Activity {
         String pkg = movingPkg;
         endMoveMode();
         if (save) {
-            dockOrder = shownDock();
-            getPreferences(MODE_PRIVATE).edit().putString("dock_order", TextUtils.join(",", dockOrder)).apply();
+            persistDock(shownDock(), null);
             wireFocus();
         } else {
             buildApps();
@@ -938,6 +943,26 @@ public class MainActivity extends Activity {
         updateNotice();
     }
 
+    /**
+     * Save the dock as shown. Apps from the old order (and the old overflow) that aren't in it now,
+     * because they were past the cap or not installed, stay in order in the overflow list; an app
+     * the user removed from the dock is dropped. The cap is saved too, so raising DOCK_MAX later
+     * brings the overflow back.
+     */
+    private void persistDock(List<String> shown, String removed) {
+        List<String> overflow = new ArrayList<>();
+        for (List<String> src : Arrays.asList(dockOrder, dockOverflow)) {
+            for (String p : src) if (!shown.contains(p) && !p.equals(removed) && !overflow.contains(p)) overflow.add(p);
+        }
+        dockOrder = new ArrayList<>(shown);
+        dockOverflow = overflow;
+        getPreferences(MODE_PRIVATE).edit()
+                .putString("dock_order", TextUtils.join(",", shown))
+                .putString("dock_overflow", TextUtils.join(",", overflow))
+                .putInt("dock_cap", DOCK_MAX)
+                .apply();
+    }
+
     /** Packages in the dock as shown now, left to right. */
     private List<String> shownDock() {
         List<String> shown = new ArrayList<>();
@@ -946,9 +971,8 @@ public class MainActivity extends Activity {
     }
 
     /** Save the new dock order, rebuild the dock and grid, and focus the app that was acted on. */
-    private void saveDock(List<String> order, String focusPkg) {
-        dockOrder = order;
-        getPreferences(MODE_PRIVATE).edit().putString("dock_order", TextUtils.join(",", order)).apply();
+    private void saveDock(List<String> order, String focusPkg, String removed) {
+        persistDock(order, removed);
         buildApps();
         View c = findCard(focusPkg);
         if (c == null) c = homeFocus();

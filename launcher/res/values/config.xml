@@ -4,7 +4,7 @@
   Package names: tools/venv/bin/python -I tools/tv.py 'pm list packages'
 -->
 <resources>
-    <!-- Dock apps, left to right, for the first run (up to 8). After that the order is changed on
+    <!-- Dock apps, left to right, for the first run (up to 6). After that the order is changed on
          the TV with a long press on OK and saved there. Apps that aren't installed are skipped. -->
     <string-array name="dock_apps">
         <item>com.apple.atve.androidtv.appletv</item>
@@ -13,8 +13,6 @@
         <item>com.amazon.amazonvideo.livingroom</item>
         <item>com.disney.disneyplus</item>
         <item>com.wbd.stream</item>
-        <item>com.spotify.tv.android</item>
-        <item>org.smarttube.stable</item>
     </string-array>
 
     <!-- Never shown as tiles in the All Apps grid. Add package names here to hide them. -->
