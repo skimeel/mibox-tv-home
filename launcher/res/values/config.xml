@@ -16,6 +16,10 @@
         <item>org.smarttube.stable</item>
     </string-array>
 
+    <!-- Never shown as tiles in the All Apps grid. Add package names here to hide them. -->
+    <string-array name="hidden_apps">
+    </string-array>
+
     <!-- The TV's Live TV / tuner app, listed last in the Inputs menu. Empty to leave it out.
          Common ones: com.tcl.tv (TCL), com.mediatek.wwtv.tvcenter (Xiaomi, many MediaTek sets),
          com.google.android.tv (Google Live Channels), com.sony.dtv.tvx (Sony). -->
@@ -23,6 +27,9 @@
 
     <!-- The manufacturer's own source picker, used if switching to an input directly fails. -->
     <string name="input_picker_package" translatable="false"></string>
+
+    <!-- Tiles per row in the grid. -->
+    <integer name="columns">5</integer>
 
     <!-- Weather line under the date, from Open-Meteo (no key). Timezone sets which day's high/low. -->
     <string name="weather_city" translatable="false">Melbourne</string>

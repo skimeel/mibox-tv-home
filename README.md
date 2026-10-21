@@ -50,7 +50,7 @@ Undo everything with `tools/restore.sh <the same list>`.
 |---|---|
 | [PROMPT.md](PROMPT.md) | The prompt for Claude Code / any coding agent |
 | [launcher/](launcher/) | The home screen, including the wallpapers; plain Android, no background services. Its only network use is the weather |
-| [launcher/res/values/config.xml](launcher/res/values/config.xml) | Dock apps, Live TV app, weather location, verse list |
+| [launcher/res/values/config.xml](launcher/res/values/config.xml) | Dock apps, hidden apps, Live TV app, grid columns, weather location, verse list |
 | [tools/tv.py](tools/tv.py) | Pure-Python ADB client: shell, batch, screenshots, chunked APK push |
 | [tools/find-tv.sh](tools/find-tv.sh) | Finds Android TVs on your Wi-Fi |
 | [tools/type.sh](tools/type.sh) | Type into the TV's on-screen keyboard from your laptop (`tools/type.sh` alone prompts hidden, for passwords) |
@@ -63,11 +63,13 @@ Undo everything with `tools/restore.sh <the same list>`.
   home screen is in front) top-left. The Wi-Fi network name top-right. The remote's Menu key opens
   an **Inputs** dropdown (HDMI/AV/Live TV, or Settings when there are none).
 - A verse of the day lower-left, one of 30 public-domain World English Bible verses chosen by date.
-- A dock of your favourite apps, the only thing the D-pad moves between. The focused app's name
-  appears above it over a glow coloured from its banner.
+  Verses that would need more than four lines on the card are skipped, never shortened.
+- A dock of your favourite apps. The focused app's name appears above it over a glow coloured from
+  its banner. Press Down for every other launchable app, plus Settings, in a grid. Only the dock
+  and grid take D-pad focus; the clock, weather, Wi-Fi chip and verse are display only.
 - 12 nature photos crossfade every 10 minutes, with a scrim so text stays readable. Swap them in
   `launcher/assets/wallpapers/` (1920×1080 JPEGs, credits in `launcher/WALLPAPER-CREDITS.md`).
-- Deterministic D-pad focus, remembers the last dock app, picks up newly installed apps on return.
+- Deterministic D-pad focus, remembers the last tile, picks up newly installed apps on return.
 
 Change the dock: edit `config.xml`, then run `launcher/build-and-install.sh`.
 

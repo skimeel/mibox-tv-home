@@ -31,6 +31,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.text.StaticLayout;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -63,6 +64,7 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -70,20 +72,23 @@ import java.util.Set;
 
 /**
  * Apple TV style home dashboard over rotating nature photos: clock, date and weather top-left, the
- * Wi-Fi name top-right, a verse of the day lower-left, and a dock of pinned apps that is the only
- * thing the D-pad moves between. Plain framework views only (no AndroidX), no background work; the
- * only network use is the weather, fetched while the launcher is in front.
+ * Wi-Fi name top-right, a verse of the day lower-left, a dock of pinned apps, and every other app
+ * plus Settings in a grid that scrolls up on Down. Only the dock and grid take D-pad focus. Plain
+ * framework views only (no AndroidX), no background work; the only network use is the weather,
+ * fetched while the launcher is in front.
  */
 public class MainActivity extends Activity {
 
-    // Dock, Live TV, weather and verse settings come from res/values/config.xml.
+    // Dock, hidden apps, Live TV, grid width, weather and verse settings come from res/values/config.xml.
     private String[] dockApps;
+    private final Set<String> hidden = new HashSet<>();
     private String liveTvPkg, inputPickerPkg;
+    private int cols;
     private String weatherCity, weatherLat, weatherLon, weatherTz, verseTranslation;
 
     static final class App {
         String pkg, label;
-        ComponentName component;
+        Intent intent;
         Drawable art;
         boolean isBanner;
         int color;
@@ -91,11 +96,15 @@ public class MainActivity extends Activity {
 
     private final Map<String, Integer> colorCache = new HashMap<>();
     private final List<View> dockCards = new ArrayList<>();
+    private final List<View> gridCards = new ArrayList<>();
 
+    private HomeScrollView scroll;
+    private LinearLayout content, dockRow;
     private FrameLayout hero;
     private View header, verseCard;
-    private LinearLayout dockRow;
+    private LinearLayout grid;
     private View glow;
+    private View gridShade;
     private ImageView wallBack, wallFront;
     private String[] wallpapers = new String[0];
     private int wallIndex = -1;
@@ -107,7 +116,8 @@ public class MainActivity extends Activity {
     // A reading older than this shows as unavailable rather than passing for current weather.
     static final long WEATHER_STALE_MS = 90 * 60 * 1000;
     static final long DAY_MS = 24 * 60 * 60 * 1000;
-    private TextView greeting, clock, ampm, date, weather, title, wifiPill, verseText, verseRef;
+    static final int VERSE_CARD_DP = 700, VERSE_MAX_LINES = 4;
+    private TextView greeting, clock, ampm, date, weather, title, wifiPill, verseText, verseRef, appsLabel;
     private final List<String[]> verses = new ArrayList<>();
     private long verseDay = -1;
     private boolean weatherBusy;
@@ -132,6 +142,9 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         dockApps = getResources().getStringArray(R.array.dock_apps);
+        hidden.addAll(Arrays.asList(getResources().getStringArray(R.array.hidden_apps)));
+        hidden.add(getPackageName());
+        cols = getResources().getInteger(R.integer.columns);
         liveTvPkg = getString(R.string.live_tv_package);
         inputPickerPkg = getString(R.string.input_picker_package);
         weatherCity = getString(R.string.weather_city);
@@ -144,6 +157,7 @@ public class MainActivity extends Activity {
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         setContentView(buildUi());
+        keepVersesThatFit();
         buildApps();
 
         IntentFilter pf = new IntentFilter();
@@ -197,11 +211,13 @@ public class MainActivity extends Activity {
         // Home pressed while already home: jump back to the first dock app.
         if (inputsPopup != null) inputsPopup.dismiss();
         if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
+        scroll.smoothScrollTo(0, 0);
     }
 
     @Override
     public void onBackPressed() {
-        // Home has nowhere to go back to.
+        // Home has nowhere to go back to; Back from the grid returns to the dock.
+        if (scroll.getScrollY() > 0 && !dockCards.isEmpty()) dockCards.get(0).requestFocus();
     }
 
     // ---------------------------------------------------------------- layout
@@ -220,6 +236,10 @@ public class MainActivity extends Activity {
         scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
                 new int[]{0xB3000000, 0x40000000, 0x26000000, 0x8C000000, 0xE6000000}));
         root.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
+        gridShade = new View(this);
+        gridShade.setBackgroundColor(0xB3000000);
+        gridShade.setAlpha(0f);
+        root.addView(gridShade, new FrameLayout.LayoutParams(-1, -1));
         try {
             wallpapers = getAssets().list("wallpapers");
         } catch (IOException ignored) { }
@@ -228,10 +248,23 @@ public class MainActivity extends Activity {
         root.addView(glow, new FrameLayout.LayoutParams(-1, -1));
         setGlow(glowColor);
 
-        // Hero: the whole screen, header on top, verse, title and dock at the bottom.
+        scroll = new HomeScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        scroll.setFillViewport(true);
+        root.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+
+        content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setClipChildren(false);
+        content.setClipToPadding(false);
+        scroll.addView(content, new FrameLayout.LayoutParams(-1, -2));
+
+        // Hero: exactly one screen tall, header on top, verse, title and dock at the bottom.
         hero = new FrameLayout(this);
         hero.setClipChildren(false);
-        root.addView(hero, new FrameLayout.LayoutParams(-1, -1));
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        content.addView(hero, new LinearLayout.LayoutParams(-1, screenH));
 
         header = buildHeader();
         hero.addView(header, lp(-1, -2, Gravity.TOP, dp(48), dp(36), dp(48), 0));
@@ -243,7 +276,7 @@ public class MainActivity extends Activity {
         hero.addView(bottom, lp(-1, -2, Gravity.BOTTOM, dp(48), 0, dp(48), dp(30)));
 
         verseCard = buildVerseCard();
-        bottom.addView(verseCard, llp(dp(620), -2, 0, 0, 0, dp(18)));
+        bottom.addView(verseCard, llp(dp(VERSE_CARD_DP), -2, 0, 0, 0, dp(12)));
 
         title = text(34, "sans-serif-light", Color.WHITE);
         title.setShadowLayer(dp(18), 0, 0, 0x66000000);
@@ -263,6 +296,17 @@ public class MainActivity extends Activity {
         band.setStroke(dp(1), 0x14FFFFFF);
         dockRow.setBackground(band);
         bottom.addView(dockRow, new LinearLayout.LayoutParams(-1, -2));
+
+        appsLabel = text(11, "sans-serif-medium", 0x99FFFFFF);
+        appsLabel.setText("ALL APPS");
+        appsLabel.setLetterSpacing(0.22f);
+        content.addView(appsLabel, llp(-2, -2, dp(68), dp(8), 0, dp(18)));
+
+        grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        grid.setClipChildren(false);
+        grid.setClipToPadding(false);
+        content.addView(grid, llp(-1, -2, dp(68), 0, dp(68), dp(160)));
         return root;
     }
 
@@ -299,7 +343,7 @@ public class MainActivity extends Activity {
         for (TextView t : new TextView[]{greeting, clock, ampm, date, weather}) t.setShadowLayer(dp(10), 0, dp(1), 0xB3000000);
         header.addView(left, new FrameLayout.LayoutParams(dp(420), -2, Gravity.START | Gravity.TOP));
 
-        // Status only: the dock is the one place the D-pad goes. Menu on the remote opens Inputs.
+        // Status only, not focusable. Menu on the remote opens the Inputs dropdown.
         wifiPill = text(11, "sans-serif-medium", 0xE6FFFFFF);
         wifiPill.setGravity(Gravity.CENTER);
         wifiPill.setPadding(dp(14), 0, dp(14), 0);
@@ -315,14 +359,14 @@ public class MainActivity extends Activity {
     private View buildVerseCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(24), dp(16), dp(48), dp(16));
+        card.setPadding(dp(24), dp(14), dp(40), dp(14));
         // Soft dark wash, heaviest behind the text, so the verse reads on bright photos too.
         GradientDrawable wash = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
                 new int[]{0xB3000000, 0x8C000000, 0x00000000});
         wash.setCornerRadius(dp(20));
         card.setBackground(wash);
 
-        verseText = text(16, "serif", 0xF2FFFFFF);
+        verseText = text(17, "serif", 0xF2FFFFFF);
         verseText.setLineSpacing(dp(4), 1f);
         verseText.setShadowLayer(dp(6), 0, dp(1), 0x99000000);
         card.addView(verseText);
@@ -341,36 +385,62 @@ public class MainActivity extends Activity {
         PackageManager pm = getPackageManager();
         android.content.pm.ChangedPackages changed = pm.getChangedPackages(packageSeq);
         if (changed != null) packageSeq = changed.getSequenceNumber();
-        Set<String> wanted = new HashSet<>(Arrays.asList(dockApps));
-        Intent q = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
         Map<String, App> byPkg = new HashMap<>();
-        for (ResolveInfo ri : pm.queryIntentActivities(q, 0)) {
-            ActivityInfo ai = ri.activityInfo;
-            // Only dock apps are shown, so only their banners are loaded.
-            if (!wanted.contains(ai.packageName) || byPkg.containsKey(ai.packageName)) continue;
-            App a = new App();
-            a.pkg = ai.packageName;
-            a.label = String.valueOf(ri.loadLabel(pm));
-            a.component = new ComponentName(ai.packageName, ai.name);
-            Drawable banner = ai.loadBanner(pm);
-            if (banner == null) banner = ai.applicationInfo.loadBanner(pm);
-            a.isBanner = banner != null;
-            a.art = banner != null ? banner : ri.loadIcon(pm);
-            a.color = sampleColor(a.pkg, a.art);
-            byPkg.put(a.pkg, a);
+        // TV apps first, then any app that only has a regular (phone-style) launcher entry.
+        for (String category : new String[]{Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER}) {
+            Intent q = new Intent(Intent.ACTION_MAIN).addCategory(category);
+            for (ResolveInfo ri : pm.queryIntentActivities(q, 0)) {
+                ActivityInfo ai = ri.activityInfo;
+                if (hidden.contains(ai.packageName) || byPkg.containsKey(ai.packageName)) continue;
+                byPkg.put(ai.packageName, app(pm, ri, new Intent(Intent.ACTION_MAIN).addCategory(category)
+                        .setComponent(new ComponentName(ai.packageName, ai.name))));
+            }
+        }
+        // A Settings tile, standing in for the settings app if it is listed already.
+        ResolveInfo settings = pm.resolveActivity(new Intent(Settings.ACTION_SETTINGS), 0);
+        if (settings != null && settings.activityInfo != null) {
+            App s = app(pm, settings, new Intent(Settings.ACTION_SETTINGS));
+            s.label = "Settings";
+            byPkg.put(s.pkg, s);
         }
 
         List<App> dock = new ArrayList<>();
         for (String p : dockApps) if (byPkg.containsKey(p)) dock.add(byPkg.remove(p));
+        List<App> rest = new ArrayList<>(byPkg.values());
+        Collections.sort(rest, (x, y) -> x.label.compareToIgnoreCase(y.label));
 
         dockRow.removeAllViews();
+        grid.removeAllViews();
         dockCards.clear();
+        gridCards.clear();
+
         for (int i = 0; i < dock.size(); i++) {
-            View tile = tile(dock.get(i));
+            View tile = tile(dock.get(i), true);
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1f);
             p.setMargins(i == 0 ? 0 : dp(10), 0, i == dock.size() - 1 ? 0 : dp(10), 0);
             dockRow.addView(tile, p);
         }
+
+        LinearLayout row = null;
+        for (int i = 0; i < rest.size(); i++) {
+            if (i % cols == 0) {
+                row = new LinearLayout(this);
+                row.setClipChildren(false);
+                row.setClipToPadding(false);
+                grid.addView(row, llp(-1, -2, 0, 0, 0, dp(26)));
+            }
+            View tile = tile(rest.get(i), false);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1f);
+            p.setMargins(i % cols == 0 ? 0 : dp(10), 0, i % cols == cols - 1 ? 0 : dp(10), 0);
+            row.addView(tile, p);
+        }
+        // Pad the last row so tiles keep their width.
+        if (row != null) for (int i = rest.size() % cols; i != 0 && i < cols; i++) {
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, 1, 1f);
+            p.setMargins(dp(10), 0, i == cols - 1 ? 0 : dp(10), 0);
+            row.addView(new View(this), p);
+        }
+        appsLabel.setVisibility(rest.isEmpty() ? View.GONE : View.VISIBLE);
         wireFocus();
 
         if (!dock.isEmpty()) { title.setText(dock.get(0).label); setGlow(dock.get(0).color); }
@@ -379,8 +449,27 @@ public class MainActivity extends Activity {
         else if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
     }
 
-    /** A 16:9 dock card with the app's banner. */
-    private View tile(App app) {
+    private App app(PackageManager pm, ResolveInfo ri, Intent launch) {
+        ActivityInfo ai = ri.activityInfo;
+        App a = new App();
+        a.pkg = ai.packageName;
+        a.label = String.valueOf(ri.loadLabel(pm));
+        a.intent = launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        Drawable banner = ai.loadBanner(pm);
+        if (banner == null) banner = ai.applicationInfo.loadBanner(pm);
+        a.isBanner = banner != null;
+        a.art = banner != null ? banner : ri.loadIcon(pm);
+        a.color = sampleColor(a.pkg, a.art);
+        return a;
+    }
+
+    /** A 16:9 card with the app's banner; the name shows under it while focused. */
+    private View tile(App app, boolean inDock) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setClipChildren(false);
+        box.setClipToPadding(false);
+
         FrameLayout card = new AspectFrame(this);
         card.setId(View.generateViewId());
         card.setFocusable(true);
@@ -418,35 +507,80 @@ public class MainActivity extends Activity {
         shine.setAlpha(0f);
         card.addView(shine, new FrameLayout.LayoutParams(-1, -1));
 
-        card.setOnClickListener(v -> launch(new Intent(Intent.ACTION_MAIN)
-                .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
-                .setComponent(app.component)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)));
+        box.addView(card, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView label = text(11, "sans-serif-medium", Color.WHITE);
+        label.setText(app.label);
+        label.setSingleLine(true);
+        label.setGravity(Gravity.CENTER);
+        label.setAlpha(0f);
+        if (!inDock) box.addView(label, llp(-1, -2, 0, dp(10), 0, 0));
+
+        card.setOnClickListener(v -> launch(new Intent(app.intent)));
         card.setOnFocusChangeListener((v, has) -> {
-            v.animate().scaleX(has ? 1.12f : 1f).scaleY(has ? 1.12f : 1f).translationZ(has ? dp(14) : 0)
+            float s = has ? (inDock ? 1.12f : 1.1f) : 1f;
+            v.animate().scaleX(s).scaleY(s).translationZ(has ? dp(14) : 0)
                     .setInterpolator(has ? new OvershootInterpolator(1.8f) : new DecelerateInterpolator())
                     .setDuration(has ? 320 : 200).start();
             shine.animate().alpha(has ? 1f : 0f).setDuration(160).start();
+            label.animate().alpha(has ? 1f : 0f).translationY(has ? dp(4) : 0).setDuration(200).start();
             if (!has) return;
             lastFocusedId = v.getId();
-            title.setText(app.label);
-            animateGlow(app.color);
+            if (inDock) {
+                title.setText(app.label);
+                title.animate().alpha(1f).setDuration(200).start();
+                animateGlow(app.color);
+                fadeGlow(1f);
+                scroll.smoothScrollTo(0, 0);
+            } else {
+                fadeGlow(0.35f);
+                title.animate().alpha(0f).setDuration(200).start();
+                scrollToRow(box);
+            }
         });
 
-        dockCards.add(card);
-        return card;
+        (inDock ? dockCards : gridCards).add(card);
+        return box;
     }
 
-    /** The dock is the only thing the D-pad moves between: Left/Right along it, ends don't wrap. */
+    /**
+     * Explicit D-pad targets over the dock and grid only (nothing above the dock is focusable):
+     * one row per press, ends of rows don't wrap, Down from the dock opens the grid.
+     */
     private void wireFocus() {
-        int d = dockCards.size();
+        int d = dockCards.size(), g = gridCards.size();
         for (int i = 0; i < d; i++) {
             View c = dockCards.get(i);
             c.setNextFocusUpId(c.getId());
-            c.setNextFocusDownId(c.getId());
             c.setNextFocusLeftId(i == 0 ? c.getId() : dockCards.get(i - 1).getId());
             c.setNextFocusRightId(i == d - 1 ? c.getId() : dockCards.get(i + 1).getId());
+            c.setNextFocusDownId(g > 0 ? gridCards.get(Math.min(i, g - 1)).getId() : c.getId());
         }
+        int lastRow = (g - 1) / cols;
+        for (int j = 0; j < g; j++) {
+            View c = gridCards.get(j);
+            int r = j / cols, col = j % cols;
+            c.setNextFocusUpId(r == 0
+                    ? (d > 0 ? dockCards.get(Math.min(col, d - 1)).getId() : c.getId())
+                    : gridCards.get(j - cols).getId());
+            c.setNextFocusDownId(j + cols < g ? gridCards.get(j + cols).getId()
+                    : r < lastRow ? gridCards.get(g - 1).getId() : c.getId());
+            c.setNextFocusLeftId(col == 0 ? c.getId() : gridCards.get(j - 1).getId());
+            c.setNextFocusRightId(col == cols - 1 || j == g - 1 ? c.getId() : gridCards.get(j + 1).getId());
+        }
+    }
+
+    private void scrollToRow(View tileBox) {
+        View row = (View) tileBox.getParent();
+        int y = grid.getTop() + row.getTop();
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        // First grid row: slide the dock band up to the top edge; later rows centre on screen.
+        View band = (View) dockRow.getParent();
+        int target = grid.indexOfChild(row) == 0
+                ? hero.getTop() + band.getTop() + dockRow.getTop() - dp(22)
+                : y - (int) (screenH * 0.42f);
+        int max = Math.max(0, content.getHeight() - scroll.getHeight());
+        scroll.smoothScrollTo(0, Math.max(0, Math.min(target, max)));
     }
 
     // ---------------------------------------------------------------- inputs
@@ -669,7 +803,25 @@ public class MainActivity extends Activity {
         } catch (IOException ignored) { }
     }
 
-    /** One verse per calendar day, the same all day, chosen by the local date. */
+    /**
+     * Drop any verse that would need more than four lines on the card, measured with the card's own
+     * font, size and width. Verse text is never shortened.
+     */
+    private void keepVersesThatFit() {
+        int width = dp(VERSE_CARD_DP) - verseCard.getPaddingLeft() - verseCard.getPaddingRight();
+        for (Iterator<String[]> it = verses.iterator(); it.hasNext(); ) {
+            String t = it.next()[1];
+            StaticLayout l = StaticLayout.Builder.obtain(t, 0, t.length(), verseText.getPaint(), width)
+                    .setLineSpacing(verseText.getLineSpacingExtra(), verseText.getLineSpacingMultiplier())
+                    .setIncludePad(verseText.getIncludeFontPadding())
+                    .setBreakStrategy(verseText.getBreakStrategy())
+                    .setHyphenationFrequency(verseText.getHyphenationFrequency())
+                    .build();
+            if (l.getLineCount() > VERSE_MAX_LINES) it.remove();
+        }
+    }
+
+    /** One verse per calendar day from the ones that fit, the same all day, chosen by the local date. */
     private void updateVerse(Calendar now) {
         if (verses.isEmpty()) { verseCard.setVisibility(View.GONE); return; }
         long day = (now.getTimeInMillis() + now.get(Calendar.ZONE_OFFSET) + now.get(Calendar.DST_OFFSET)) / DAY_MS;
@@ -698,6 +850,12 @@ public class MainActivity extends Activity {
         glowAnim.setDuration(450);
         glowAnim.addUpdateListener(a -> setGlow((int) a.getAnimatedValue()));
         glowAnim.start();
+    }
+
+    private void fadeGlow(float alpha) {
+        glow.animate().alpha(alpha).setDuration(300).start();
+        // The grid sits over the photo's busiest middle part, so dim it while browsing apps.
+        gridShade.animate().alpha(alpha < 1f ? 1f : 0f).setDuration(300).start();
     }
 
     // ---------------------------------------------------------------- wallpaper
@@ -909,5 +1067,11 @@ public class MainActivity extends Activity {
             int width = MeasureSpec.getSize(w);
             super.onMeasure(w, MeasureSpec.makeMeasureSpec(width * 9 / 16, MeasureSpec.EXACTLY));
         }
+    }
+
+    /** ScrollView that never auto-scrolls to the focused child; the activity scrolls it by row. */
+    static final class HomeScrollView extends android.widget.ScrollView {
+        HomeScrollView(Context c) { super(c); }
+        @Override protected int computeScrollDeltaToGetChildRectOnScreen(android.graphics.Rect r) { return 0; }
     }
 }
