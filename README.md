@@ -64,8 +64,13 @@ Undo everything with `tools/restore.sh <the same list>`.
   working, no internet, connecting or offline, or an Ethernet icon when wired; opens Wi-Fi
   settings) and **Settings**; Up from the dock reaches them. The remote's Menu key opens an
   **Inputs** dropdown (HDMI/AV/Live TV, or Settings when there are none).
-- A verse of the day lower-left, one of 30 public-domain World English Bible verses chosen by date.
-  Verses that would need more than four lines on the card are skipped, never shortened.
+- A verse of the day lower-left, one of 30 references chosen by date, in the ESV from the
+  [ESV API](https://api.esv.org/) with Crossway's copyright notice under the dock. Put your key in
+  `launcher/esv.env` (git-ignored) as `ESV_API_KEY=<key>` and rebuild; the build compiles it in and
+  never prints it. The app asks for at most one passage a day, only while the home screen is in
+  front, and caches it. Without a key, offline, or on any error it shows the bundled public-domain
+  World English Bible text, labelled WEB. Verses that would need more than four lines are skipped,
+  never shortened.
 - A dock of your favourite apps. The focused app's name appears above it over a glow coloured from
   its banner. Press Down for every other launchable app, plus Settings, in a grid. The clock,
   weather and verse are display only.

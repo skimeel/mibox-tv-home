@@ -52,6 +52,7 @@ import android.widget.LinearLayout;
 import android.widget.PopupWindow;
 import android.widget.TextView;
 
+import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
@@ -78,11 +79,12 @@ import java.util.Set;
 
 /**
  * Apple TV style home dashboard over rotating nature photos: clock, date and weather top-left, the
- * Wi-Fi network name, a verse of the day lower-left, a dock of pinned apps, and every other app
+ * Wi-Fi network name, a verse of the day lower-left (ESV from the ESV API, cached, with the bundled
+ * WEB text as the fallback), a dock of pinned apps, and every other app
  * plus Settings in a grid that scrolls up on Down. Wi-Fi and Settings pills top-right, the dock and
  * the grid take D-pad focus; the weather and verse are display only. Long-press OK on an app to
- * rearrange the dock. Plain framework views only (no AndroidX), no background work; the only network use is the weather,
- * fetched while the launcher is in front.
+ * rearrange the dock. Plain framework views only (no AndroidX), no background work; the only network
+ * use is the weather and the day's ESV verse, fetched while the launcher is in front.
  */
 public class MainActivity extends Activity {
 
@@ -130,6 +132,10 @@ public class MainActivity extends Activity {
     private TextView greeting, clock, ampm, date, weather, title, wifiPill, verseText, verseRef, appsLabel;
     private final List<String[]> verses = new ArrayList<>();
     private long verseDay = -1;
+    // ESV: cached passages expire after this many days (Crossway asks for periodic cache clearing).
+    static final long ESV_CACHE_DAYS = 30;
+    private TextView esvNotice;
+    private boolean esvShown, esvBusy;
     private boolean weatherBusy;
     private int glowColor = 0xFF3A3A3A;
     private ValueAnimator glowAnim;
@@ -144,7 +150,7 @@ public class MainActivity extends Activity {
 
     // Registered only while resumed, so the weather check it runs happens only in the foreground.
     private final BroadcastReceiver tick = new BroadcastReceiver() {
-        @Override public void onReceive(Context c, Intent i) { updateClock(); updateWifi(); updateWeather(); }
+        @Override public void onReceive(Context c, Intent i) { updateClock(); updateWifi(); updateWeather(); refreshEsv(); }
     };
     // The default network's capabilities, kept current by netCallback while the launcher is started.
     private NetworkCapabilities netCaps;
@@ -233,6 +239,7 @@ public class MainActivity extends Activity {
         updateClock();
         updateWifi();
         updateWeather();
+        refreshEsv();
         View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
         if (last == null) last = homeFocus();
         if (last != null) last.requestFocus();
@@ -360,6 +367,13 @@ public class MainActivity extends Activity {
         moveHint.setShadowLayer(dp(8), 0, dp(1), 0xCC000000);
         moveHint.setVisibility(View.GONE);
         hero.addView(moveHint, lp(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, 0, 0, dp(7)));
+
+        // Crossway's copyright notice and esv.org, in the same gap, shown whenever the card shows ESV text.
+        esvNotice = text(8, "sans-serif", 0x99FFFFFF);
+        esvNotice.setText(getString(R.string.esv_copyright) + "  ·  " + getString(R.string.esv_link));
+        esvNotice.setGravity(Gravity.CENTER);
+        esvNotice.setVisibility(View.GONE);
+        hero.addView(esvNotice, lp(-1, -2, Gravity.BOTTOM, dp(48), 0, dp(48), dp(3)));
 
         appsLabel = text(11, "sans-serif-medium", 0x99FFFFFF);
         appsLabel.setText("ALL APPS");
@@ -818,6 +832,7 @@ public class MainActivity extends Activity {
         ((ViewGroup) card).addView(moveRing, new FrameLayout.LayoutParams(-1, -1));
         card.animate().translationY(-dp(10)).setDuration(180).start();
         moveHint.setVisibility(View.VISIBLE);
+        esvNotice.setVisibility(View.GONE);
     }
 
     /** Slide the moving tile one place left (-1) or right (+1), animating both tiles into place. */
@@ -873,6 +888,7 @@ public class MainActivity extends Activity {
         moveRing = null;
         if (card != null) card.animate().translationY(0).setDuration(180).start();
         moveHint.setVisibility(View.GONE);
+        esvNotice.setVisibility(esvShown ? View.VISIBLE : View.GONE);
     }
 
     /** Packages in the dock as shown now, left to right. */
@@ -1103,17 +1119,19 @@ public class MainActivity extends Activity {
      * font, size and width. Verse text is never shortened.
      */
     private void keepVersesThatFit() {
+        for (Iterator<String[]> it = verses.iterator(); it.hasNext(); ) if (!fitsCard(it.next()[1])) it.remove();
+    }
+
+    /** Whether the text fits the verse card in four lines, laid out exactly as the card would. */
+    private boolean fitsCard(String t) {
         int width = dp(VERSE_CARD_DP) - verseCard.getPaddingLeft() - verseCard.getPaddingRight();
-        for (Iterator<String[]> it = verses.iterator(); it.hasNext(); ) {
-            String t = it.next()[1];
-            StaticLayout l = StaticLayout.Builder.obtain(t, 0, t.length(), verseText.getPaint(), width)
-                    .setLineSpacing(verseText.getLineSpacingExtra(), verseText.getLineSpacingMultiplier())
-                    .setIncludePad(verseText.getIncludeFontPadding())
-                    .setBreakStrategy(verseText.getBreakStrategy())
-                    .setHyphenationFrequency(verseText.getHyphenationFrequency())
-                    .build();
-            if (l.getLineCount() > VERSE_MAX_LINES) it.remove();
-        }
+        StaticLayout l = StaticLayout.Builder.obtain(t, 0, t.length(), verseText.getPaint(), width)
+                .setLineSpacing(verseText.getLineSpacingExtra(), verseText.getLineSpacingMultiplier())
+                .setIncludePad(verseText.getIncludeFontPadding())
+                .setBreakStrategy(verseText.getBreakStrategy())
+                .setHyphenationFrequency(verseText.getHyphenationFrequency())
+                .build();
+        return l.getLineCount() <= VERSE_MAX_LINES;
     }
 
     /** One verse per calendar day from the ones that fit, the same all day, chosen by the local date. */
@@ -1122,9 +1140,136 @@ public class MainActivity extends Activity {
         long day = (now.getTimeInMillis() + now.get(Calendar.ZONE_OFFSET) + now.get(Calendar.DST_OFFSET)) / DAY_MS;
         if (day == verseDay) return;
         verseDay = day;
-        String[] v = verses.get((int) (day % verses.size()));
-        verseText.setText(v[1]);
-        verseRef.setText((v[0] + "  ·  " + verseTranslation).toUpperCase(Locale.getDefault()));
+        showVerse();
+    }
+
+    /** Today's {reference, WEB text} from the bundled list. */
+    private String[] todaysVerse() {
+        return verses.get((int) (verseDay % verses.size()));
+    }
+
+    /**
+     * The ESV text for today's reference when it is cached and fits the card; otherwise the bundled
+     * WEB text, labelled WEB, plus why the ESV isn't shown when that is the key.
+     */
+    private void showVerse() {
+        String[] v = todaysVerse();
+        String esv = cachedEsv(v[0]);
+        String label;
+        esvShown = esv != null && fitsCard(esv);
+        if (esvShown) {
+            verseText.setText(esv);
+            label = "ESV";
+        } else {
+            verseText.setText(v[1]);
+            label = verseTranslation;
+            SharedPreferences p = esvPrefs();
+            if (EsvKey.KEY.isEmpty()) label += "  ·  ESV key missing";
+            else if (p.getLong("rejected_day", -1) == verseDay && p.getInt("rejected_key", 0) == EsvKey.KEY.hashCode()) {
+                label += "  ·  ESV key rejected";
+            }
+        }
+        verseRef.setText((v[0] + "  ·  " + label).toUpperCase(Locale.getDefault()));
+        esvNotice.setVisibility(esvShown && movingPkg == null ? View.VISIBLE : View.GONE);
+    }
+
+    // ---------------------------------------------------------------- ESV
+
+    private SharedPreferences esvPrefs() {
+        return getSharedPreferences("esv", MODE_PRIVATE);
+    }
+
+    /** A cached ESV passage for the reference, or null if there is none or it has expired. */
+    private String cachedEsv(String ref) {
+        SharedPreferences p = esvPrefs();
+        long at = p.getLong("at:" + ref, Long.MIN_VALUE);
+        if (at == Long.MIN_VALUE || verseDay - at >= ESV_CACHE_DAYS || verseDay < at) return null;
+        return p.getString("text:" + ref, null);
+    }
+
+    /**
+     * Fetch today's passage from the ESV API: only with a key, only while the launcher is resumed
+     * (onResume and the minute tick call this), only if it isn't cached, and at most one request a
+     * day per key. Any failure leaves the WEB text up.
+     */
+    private void refreshEsv() {
+        if (EsvKey.KEY.isEmpty() || verseDay < 0 || verses.isEmpty() || esvBusy || !isOnline()) return;
+        String ref = todaysVerse()[0];
+        SharedPreferences p = esvPrefs();
+        int keyId = EsvKey.KEY.hashCode(); // tells a rebuilt key apart without storing the key
+        if (cachedEsv(ref) != null || (p.getLong("tried_day", -1) == verseDay && p.getInt("tried_key", 0) == keyId)) return;
+        esvBusy = true;
+        long day = verseDay;
+        p.edit().putLong("tried_day", day).putInt("tried_key", keyId).apply();
+        new Thread(() -> {
+            int[] status = new int[1];
+            String text = fetchEsv(ref, status);
+            runOnUiThread(() -> {
+                esvBusy = false;
+                SharedPreferences.Editor e = p.edit();
+                if (status[0] == HttpURLConnection.HTTP_UNAUTHORIZED || status[0] == HttpURLConnection.HTTP_FORBIDDEN) {
+                    e.putLong("rejected_day", day).putInt("rejected_key", keyId);
+                }
+                if (text != null) {
+                    pruneEsvCache(e, day);
+                    e.putString("text:" + ref, text).putLong("at:" + ref, day);
+                }
+                e.apply();
+                if (!isDestroyed() && day == verseDay) showVerse();
+            });
+        }).start();
+    }
+
+    /**
+     * Drop expired passages and any reference no longer in the bundled list. The cache can then
+     * hold at most the list's 30 references (32 verses), far below the API's 500-verse limit.
+     */
+    private void pruneEsvCache(SharedPreferences.Editor e, long today) {
+        Set<String> refs = new HashSet<>();
+        for (String[] v : verses) refs.add(v[0]);
+        for (Map.Entry<String, ?> en : esvPrefs().getAll().entrySet()) {
+            if (!en.getKey().startsWith("at:") || !(en.getValue() instanceof Long)) continue;
+            String ref = en.getKey().substring(3);
+            long at = (Long) en.getValue();
+            if (!refs.contains(ref) || today - at >= ESV_CACHE_DAYS || today < at) {
+                e.remove("at:" + ref).remove("text:" + ref);
+            }
+        }
+    }
+
+    /**
+     * One passage request on a worker thread: plain text with no references, verse numbers,
+     * headings, footnotes or copyright line. status[0] gets the HTTP code; null on any failure.
+     */
+    private String fetchEsv(String ref, int[] status) {
+        HttpURLConnection c = null;
+        try {
+            URL url = new URL("https://api.esv.org/v3/passage/text/?q=" + URLEncoder.encode(ref.replace('–', '-'), "UTF-8")
+                    + "&include-passage-references=false&include-verse-numbers=false&include-first-verse-numbers=false"
+                    + "&include-footnotes=false&include-footnote-body=false&include-headings=false"
+                    + "&include-short-copyright=false&include-copyright=false"
+                    + "&include-passage-horizontal-lines=false&include-heading-horizontal-lines=false"
+                    + "&indent-paragraphs=0&indent-poetry=false&indent-declares=0&indent-psalm-doxology=0");
+            c = (HttpURLConnection) url.openConnection();
+            c.setRequestProperty("Authorization", "Token " + EsvKey.KEY);
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(10000);
+            status[0] = c.getResponseCode();
+            if (status[0] != HttpURLConnection.HTTP_OK) return null;
+            StringBuilder body = new StringBuilder();
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8))) {
+                for (String line; (line = r.readLine()) != null; ) body.append(line).append('\n');
+            }
+            JSONArray passages = new JSONObject(body.toString()).getJSONArray("passages");
+            if (passages.length() != 1) return null;
+            // Line breaks and indents are layout only; the words stay exactly as sent.
+            String t = passages.getString(0).trim().replaceAll("\\s+", " ");
+            return t.isEmpty() || t.length() > 600 ? null : t;
+        } catch (IOException | JSONException | RuntimeException e) {
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
     }
 
     // ---------------------------------------------------------------- glow

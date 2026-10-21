@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Crossway's standard ESV copyright notice, copied verbatim from the ESV API terms
+         (https://api.esv.org/, "What is the standard copyright notice"). Shown while ESV text is. -->
+    <string name="esv_copyright" translatable="false">Scripture quotations are from the ESV® Bible (The Holy Bible, English Standard Version®), © 2001 by Crossway, a publishing ministry of Good News Publishers. Used by permission. All rights reserved. The ESV text may not be quoted in any publication made available to the public by a Creative Commons license. The ESV may not be translated into any other language.</string>
+    <!-- The API terms ask each page using the text to link to esv.org; a TV can only show it. -->
+    <string name="esv_link" translatable="false">www.esv.org</string>
+</resources>

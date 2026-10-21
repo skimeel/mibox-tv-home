@@ -38,7 +38,8 @@
     <string name="weather_longitude" translatable="false">144.9631</string>
     <string name="weather_timezone" translatable="false">Australia/Melbourne</string>
 
-    <!-- Verse of the day: a bundled tab-separated list in assets, and the translation shown on the card. -->
+    <!-- Verse of the day: the bundled list (references, plus WEB text used whenever the ESV can't be),
+         and the label shown on the card for that fallback text. -->
     <string name="verse_file" translatable="false">verses/web.tsv</string>
-    <string name="verse_translation" translatable="false">World English Bible</string>
+    <string name="verse_translation" translatable="false">WEB</string>
 </resources>
