@@ -125,6 +125,9 @@ public class MainActivity extends Activity {
     private final Runnable rotateWallpaper = this::nextWallpaper;
     static final long WALLPAPER_INTERVAL_MS = 10 * 60 * 1000;
     static final long WEATHER_INTERVAL_MS = 30 * 60 * 1000;
+    // After a failed request (often the network still coming up after boot), retry sooner a few times.
+    static final long WEATHER_RETRY_MS = 5 * 60 * 1000;
+    static final int WEATHER_QUICK_RETRIES = 3;
     // A reading older than this shows as unavailable rather than passing for current weather.
     static final long WEATHER_STALE_MS = 90 * 60 * 1000;
     static final long DAY_MS = 24 * 60 * 60 * 1000;
@@ -1031,12 +1034,18 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Ask Open-Meteo at most once per 30 minutes; called only while the launcher is resumed. */
+    /**
+     * Ask Open-Meteo at most once per 30 minutes after a success. After a failure, retry in 5 minutes,
+     * up to three times in a row, then back to every 30 minutes. Called only while the launcher is
+     * resumed.
+     */
     private void refreshWeather() {
         SharedPreferences p = getPreferences(MODE_PRIVATE);
         long now = System.currentTimeMillis();
         long since = now - p.getLong("weather_tried", 0);
-        if (weatherBusy || !isOnline() || (since >= 0 && since < WEATHER_INTERVAL_MS)) return;
+        int fails = p.getInt("weather_fails", 0);
+        long wait = fails > 0 && fails <= WEATHER_QUICK_RETRIES ? WEATHER_RETRY_MS : WEATHER_INTERVAL_MS;
+        if (weatherBusy || !isOnline() || (since >= 0 && since < wait)) return;
         weatherBusy = true;
         p.edit().putLong("weather_tried", now).apply();
         new Thread(() -> {
@@ -1044,7 +1053,10 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 weatherBusy = false;
                 if (text != null) {
-                    p.edit().putString("weather_text", text).putLong("weather_at", System.currentTimeMillis()).apply();
+                    p.edit().putString("weather_text", text).putLong("weather_at", System.currentTimeMillis())
+                            .putInt("weather_fails", 0).apply();
+                } else {
+                    p.edit().putInt("weather_fails", p.getInt("weather_fails", 0) + 1).apply();
                 }
                 if (!isDestroyed()) showWeather();
             });
