@@ -65,6 +65,11 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -79,7 +84,7 @@ import java.util.Set;
 
 /**
  * Apple TV style home dashboard over rotating nature photos: clock, date and weather top-left, the
- * Wi-Fi network name, a verse of the day lower-left (ESV from the ESV API, cached, with the bundled
+ * Wi-Fi network name with today's schedule under it, a verse of the day lower-left (ESV from the ESV API, cached, with the bundled
  * WEB text as the fallback), a dock of pinned apps, and every other app
  * plus Settings in a grid that scrolls up on Down. Wi-Fi and Settings pills top-right, the dock and
  * the grid take D-pad focus; the weather and verse are display only. Long-press OK on an app to
@@ -131,7 +136,8 @@ public class MainActivity extends Activity {
     // A reading older than this shows as unavailable rather than passing for current weather.
     static final long WEATHER_STALE_MS = 90 * 60 * 1000;
     static final long DAY_MS = 24 * 60 * 60 * 1000;
-    static final int VERSE_CARD_DP = 700, VERSE_MAX_LINES = 4;
+    // 560dp keeps the verse card clear of the schedule card on the right at any height.
+    static final int VERSE_CARD_DP = 560, VERSE_MAX_LINES = 4;
     private TextView greeting, clock, ampm, date, weather, title, wifiPill, verseText, verseRef, appsLabel;
     private final List<String[]> verses = new ArrayList<>();
     private long verseDay = -1;
@@ -146,6 +152,15 @@ public class MainActivity extends Activity {
     private TextView esvNotice;
     private boolean esvShown, esvBusy;
     private boolean weatherBusy;
+    // Schedule card: refreshed like the weather (30 minutes after a success, 5 after a failure,
+    // three quick retries), shown from the cache, and marked stale after 3 hours.
+    static final long CALENDAR_INTERVAL_MS = 30 * 60 * 1000, CALENDAR_RETRY_MS = 5 * 60 * 1000;
+    static final int CALENDAR_QUICK_RETRIES = 3;
+    static final long CALENDAR_STALE_MS = 3 * 60 * 60 * 1000;
+    private LinearLayout calCard;
+    private ZoneId calZone;
+    private boolean showEventTitles, calendarBusy;
+    private DateTimeFormatter calTime;
     private int glowColor = 0xFF3A3A3A;
     private ValueAnimator glowAnim;
     private int lastFocusedId = View.NO_ID;
@@ -159,7 +174,9 @@ public class MainActivity extends Activity {
 
     // Registered only while resumed, so the weather check it runs happens only in the foreground.
     private final BroadcastReceiver tick = new BroadcastReceiver() {
-        @Override public void onReceive(Context c, Intent i) { updateClock(); updateWifi(); updateWeather(); refreshEsv(); }
+        @Override public void onReceive(Context c, Intent i) {
+            updateClock(); updateWifi(); updateWeather(); refreshEsv(); refreshCalendar(); showCalendar();
+        }
     };
     // The default network's capabilities, kept current by netCallback while the launcher is started.
     private NetworkCapabilities netCaps;
@@ -192,6 +209,9 @@ public class MainActivity extends Activity {
         weatherLat = getString(R.string.weather_latitude);
         weatherLon = getString(R.string.weather_longitude);
         weatherTz = getString(R.string.weather_timezone);
+        calZone = IcsParser.zoneOr(getString(R.string.calendar_timezone), ZoneId.systemDefault());
+        showEventTitles = getResources().getBoolean(R.bool.show_event_titles);
+        calTime = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH).withZone(calZone);
         verseTranslation = getString(R.string.verse_translation);
         loadVerses(getString(R.string.verse_file));
         getWindow().getDecorView().setSystemUiVisibility(
@@ -249,6 +269,8 @@ public class MainActivity extends Activity {
         updateWifi();
         updateWeather();
         refreshEsv();
+        refreshCalendar();
+        showCalendar();
         View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
         if (last == null) last = homeFocus();
         if (last != null) last.requestFocus();
@@ -341,6 +363,15 @@ public class MainActivity extends Activity {
 
         header = buildHeader();
         hero.addView(header, lp(-1, -2, Gravity.TOP, dp(48), dp(36), dp(48), 0));
+
+        // Schedule card, top right under the pills. Display only, never focusable.
+        calCard = new LinearLayout(this);
+        calCard.setOrientation(LinearLayout.VERTICAL);
+        calCard.setPadding(dp(18), dp(14), dp(18), dp(12));
+        GradientDrawable calBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x8C000000, 0x66000000});
+        calBg.setCornerRadius(dp(20));
+        calCard.setBackground(calBg);
+        hero.addView(calCard, lp(dp(300), -2, Gravity.TOP | Gravity.END, 0, dp(84), dp(48), 0));
 
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(LinearLayout.VERTICAL);
@@ -1121,6 +1152,163 @@ public class MainActivity extends Activity {
         ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
         NetworkInfo n = cm == null ? null : cm.getActiveNetworkInfo();
         return n != null && n.isConnected();
+    }
+
+    // ---------------------------------------------------------------- schedule
+
+    private SharedPreferences calPrefs() {
+        return getSharedPreferences("calendar", MODE_PRIVATE);
+    }
+
+    /** Draw the schedule card from the cache, or its not-set-up / unavailable state. */
+    private void showCalendar() {
+        calCard.removeAllViews();
+        calCard.addView(calLabel("TODAY", 0));
+        SharedPreferences p = calPrefs();
+        String json = p.getString("events", null);
+        if (CalendarLinks.URLS.length == 0) { calCard.addView(calNote("Calendar not set up")); return; }
+        if ("error".equals(p.getString("status", ""))) { calCard.addView(calNote("Calendar unavailable")); return; }
+        if (json == null) { calCard.addView(calNote(calendarBusy ? "Loading…" : "Calendar unavailable")); return; }
+
+        Agenda a = Agenda.pick(decodeEvents(json), ZonedDateTime.now(calZone));
+        if (!a.allDayToday.isEmpty()) {
+            StringBuilder titles = new StringBuilder();
+            for (IcsParser.Event e : a.allDayToday) titles.append(titles.length() == 0 ? "" : " · ").append(eventTitle(e));
+            TextView allDay = calText(13, "sans-serif", Color.WHITE);
+            allDay.setText("All day: " + titles);
+            calCard.addView(allDay, llp(-1, -2, 0, dp(4), 0, dp(2)));
+        }
+        if (a.tomorrow && !a.events.isEmpty()) calCard.addView(calLabel("TOMORROW", dp(8)));
+        for (IcsParser.Event e : a.events) {
+            calCard.addView(calRow(e.allDay ? "All day" : calTime.format(Instant.ofEpochMilli(e.start)), eventTitle(e)));
+        }
+        if (a.isEmpty()) calCard.addView(calNote("Nothing scheduled"));
+
+        long at = p.getLong("at", 0);
+        boolean stale = System.currentTimeMillis() - at > CALENDAR_STALE_MS;
+        TextView updated = calText(9, "sans-serif", stale ? 0xB3FFC266 : 0x80FFFFFF);
+        updated.setText("Updated " + calTime.format(Instant.ofEpochMilli(at)) + (stale ? "  ·  stale" : ""));
+        calCard.addView(updated, llp(-2, -2, 0, dp(8), 0, 0));
+    }
+
+    private String eventTitle(IcsParser.Event e) {
+        return !showEventTitles || e.title.isEmpty() ? "Busy" : e.title;
+    }
+
+    private TextView calText(float sp, String family, int color) {
+        TextView t = text(sp, family, color);
+        t.setSingleLine(true);
+        t.setEllipsize(TextUtils.TruncateAt.END); // long titles end in "…" on one line
+        t.setShadowLayer(dp(6), 0, dp(1), 0x99000000);
+        return t;
+    }
+
+    private TextView calLabel(String label, int topMargin) {
+        TextView t = calText(10, "sans-serif-medium", 0x99FFFFFF);
+        t.setText(label);
+        t.setLetterSpacing(0.22f);
+        t.setLayoutParams(llp(-2, -2, 0, topMargin, 0, dp(4)));
+        return t;
+    }
+
+    private TextView calNote(String note) {
+        TextView t = calText(13, "sans-serif", 0x99FFFFFF);
+        t.setText(note);
+        t.setLayoutParams(llp(-2, -2, 0, dp(4), 0, dp(2)));
+        return t;
+    }
+
+    private View calRow(String time, String title) {
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(3), 0, dp(3));
+        TextView t = calText(13, "sans-serif-medium", 0xCCFFFFFF);
+        t.setText(time);
+        row.addView(t, new LinearLayout.LayoutParams(dp(76), -2));
+        TextView n = calText(13, "sans-serif", Color.WHITE);
+        n.setText(title);
+        row.addView(n, new LinearLayout.LayoutParams(0, -2, 1f));
+        return row;
+    }
+
+    /**
+     * Fetch the calendars only while the launcher is resumed (onResume and the minute tick call
+     * this): at most every 30 minutes after a success, 5 minutes after a failure for three tries.
+     */
+    private void refreshCalendar() {
+        if (CalendarLinks.URLS.length == 0 || calendarBusy || !isOnline()) return;
+        SharedPreferences p = calPrefs();
+        long now = System.currentTimeMillis();
+        long since = now - p.getLong("tried", 0);
+        int fails = p.getInt("fails", 0);
+        long wait = fails > 0 && fails <= CALENDAR_QUICK_RETRIES ? CALENDAR_RETRY_MS : CALENDAR_INTERVAL_MS;
+        if (since >= 0 && since < wait) return;
+        calendarBusy = true;
+        p.edit().putLong("tried", now).apply();
+        ZoneId zone = calZone;
+        boolean titles = showEventTitles;
+        new Thread(() -> {
+            String[] result = fetchCalendars(zone, titles);
+            runOnUiThread(() -> {
+                calendarBusy = false;
+                SharedPreferences.Editor e = p.edit();
+                if (result[0].equals("ok")) {
+                    e.putString("events", result[1]).putLong("at", System.currentTimeMillis())
+                            .putString("status", "ok").putInt("fails", 0);
+                } else {
+                    e.putInt("fails", p.getInt("fails", 0) + 1);
+                    if (result[0].equals("error")) e.putString("status", "error");
+                }
+                e.apply();
+                if (!isDestroyed()) showCalendar();
+            });
+        }).start();
+    }
+
+    /**
+     * Read every link on a worker thread and keep today's and tomorrow's events. Returns {"ok", json},
+     * {"error", null} when Google answers with an error or something that isn't a calendar, or
+     * {"offline", null} for network failures. Links are never logged.
+     */
+    private static String[] fetchCalendars(ZoneId zone, boolean titles) {
+        ZonedDateTime from = LocalDate.now(zone).atStartOfDay(zone), to = from.plusDays(2);
+        List<IcsParser.Event> all = new ArrayList<>();
+        for (String link : CalendarLinks.URLS) {
+            HttpURLConnection c = null;
+            try {
+                c = (HttpURLConnection) new URL(link).openConnection();
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(30000);
+                if (c.getResponseCode() != HttpURLConnection.HTTP_OK) return new String[]{"error", null};
+                try (BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8))) {
+                    all.addAll(IcsParser.parse(r, from, to, titles));
+                }
+            } catch (IcsParser.NotACalendar e) {
+                return new String[]{"error", null};
+            } catch (IOException | RuntimeException e) {
+                return new String[]{"offline", null};
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }
+        IcsParser.sortByStart(all);
+        JSONArray out = new JSONArray();
+        for (IcsParser.Event e : all) {
+            out.put(new JSONArray().put(e.start).put(e.end).put(e.allDay ? 1 : 0).put(e.title));
+        }
+        return new String[]{"ok", out.toString()};
+    }
+
+    private static List<IcsParser.Event> decodeEvents(String json) {
+        List<IcsParser.Event> events = new ArrayList<>();
+        try {
+            JSONArray a = new JSONArray(json);
+            for (int i = 0; i < a.length(); i++) {
+                JSONArray e = a.getJSONArray(i);
+                events.add(new IcsParser.Event(e.getLong(0), e.getLong(1), e.getInt(2) == 1, e.getString(3)));
+            }
+        } catch (JSONException ignored) { }
+        return events;
     }
 
     // ---------------------------------------------------------------- verse

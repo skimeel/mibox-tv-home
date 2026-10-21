@@ -64,6 +64,15 @@ Undo everything with `tools/restore.sh <the same list>`.
   working, no internet, connecting or offline, or an Ethernet icon when wired; opens Wi-Fi
   settings) and **Settings**; Up from the dock reaches them. The remote's Menu key opens an
   **Inputs** dropdown (HDMI/AV/Live TV, or Settings when there are none).
+- Today's schedule top-right from up to three Google Calendar private iCal links in
+  `launcher/calendar.env` (git-ignored) as `ICAL_URL_1=` to `ICAL_URL_3=`; the build compiles them
+  in and prints only how many it found. Up to four events still to come today (all-day ones on one
+  line at the top), or tomorrow's first three when nothing is left, in Melbourne time. Fetched
+  only while the home screen is in front, at most every 30 minutes (5 after a failure, three
+  times), cached for offline use and marked stale after 3 hours. Recurring events, exceptions,
+  moved or cancelled occurrences, time zones and daylight saving are handled by a small parser
+  (`launcher/src/.../IcsParser.java`, tested against made-up events in `launcher/test/`). Set
+  `show_event_titles` to `false` in `config.xml` to show only times and "Busy".
 - A verse of the day lower-left, one of 30 references chosen by date, in the ESV from the
   [ESV API](https://api.esv.org/) with Crossway's copyright notice in one dim line along the bottom
   edge. Put your key in `launcher/esv.env` (git-ignored) as `ESV_API_KEY=<key>` and rebuild; the

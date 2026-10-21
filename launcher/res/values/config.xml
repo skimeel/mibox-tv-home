@@ -38,6 +38,11 @@
     <string name="weather_longitude" translatable="false">144.9631</string>
     <string name="weather_timezone" translatable="false">Australia/Melbourne</string>
 
+    <!-- Schedule card: today's events from the iCal links in launcher/calendar.env (git-ignored),
+         in this time zone. Set show_event_titles to false to show only times and "Busy". -->
+    <string name="calendar_timezone" translatable="false">Australia/Melbourne</string>
+    <bool name="show_event_titles">true</bool>
+
     <!-- Verse of the day: the bundled list (references, plus WEB text used whenever the ESV can't be),
          and the label shown on the card for that fallback text. -->
     <string name="verse_file" translatable="false">verses/web.tsv</string>
