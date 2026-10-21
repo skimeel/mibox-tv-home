@@ -47,4 +47,7 @@
          and the label shown on the card for that fallback text. -->
     <string name="verse_file" translatable="false">verses/web.tsv</string>
     <string name="verse_translation" translatable="false">WEB</string>
+    <!-- Crossway's ESV copyright notice (res/values/esv.xml) as a dim line along the bottom edge
+         while ESV text is shown. Off: the notice is not shown at all; the card still says ESV. -->
+    <bool name="show_esv_notice">false</bool>
 </resources>

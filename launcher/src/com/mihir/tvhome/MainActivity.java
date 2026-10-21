@@ -149,7 +149,7 @@ public class MainActivity extends Activity {
     // The notice line runs edge to edge with this margin; it shrinks to fit, but not below the floor.
     static final int NOTICE_SIDE_DP = 8;
     static final float NOTICE_MAX_SP = 8f, NOTICE_MIN_SP = 5.5f;
-    private TextView esvNotice;
+    private TextView esvNotice; // null unless show_esv_notice is true in config.xml
     private boolean esvShown, esvBusy;
     private boolean weatherBusy;
     // Schedule card: refreshed like the weather (30 minutes after a success, 5 after a failure,
@@ -410,14 +410,17 @@ public class MainActivity extends Activity {
 
         // Crossway's copyright notice and esv.org: one dim line on the bottom edge, shown whenever the
         // card shows ESV text. Only the spacing is tightened to fit; the wording is never cut.
-        esvNotice = text(8, "sans-serif-condensed", 0x73B3B3B3);
-        esvNotice.setText(getString(R.string.esv_copyright) + " · " + getString(R.string.esv_link));
-        esvNotice.setLetterSpacing(-0.01f);
-        esvNotice.setGravity(Gravity.CENTER);
-        esvNotice.setIncludeFontPadding(false);
-        esvNotice.setVisibility(View.GONE);
-        fitNoticeToOneLine();
-        hero.addView(esvNotice, lp(-1, -2, Gravity.BOTTOM, dp(NOTICE_SIDE_DP), 0, dp(NOTICE_SIDE_DP), dp(2)));
+        // Turned off by default (show_esv_notice); then the view isn't created, so it never shows or takes space.
+        if (getResources().getBoolean(R.bool.show_esv_notice)) {
+            esvNotice = text(8, "sans-serif-condensed", 0x73B3B3B3);
+            esvNotice.setText(getString(R.string.esv_copyright) + " · " + getString(R.string.esv_link));
+            esvNotice.setLetterSpacing(-0.01f);
+            esvNotice.setGravity(Gravity.CENTER);
+            esvNotice.setIncludeFontPadding(false);
+            esvNotice.setVisibility(View.GONE);
+            fitNoticeToOneLine();
+            hero.addView(esvNotice, lp(-1, -2, Gravity.BOTTOM, dp(NOTICE_SIDE_DP), 0, dp(NOTICE_SIDE_DP), dp(2)));
+        }
 
         appsLabel = text(11, "sans-serif-medium", 0x99FFFFFF);
         appsLabel.setText("ALL APPS");
@@ -876,7 +879,7 @@ public class MainActivity extends Activity {
         ((ViewGroup) card).addView(moveRing, new FrameLayout.LayoutParams(-1, -1));
         card.animate().translationY(-dp(10)).setDuration(180).start();
         moveHint.setVisibility(View.VISIBLE);
-        esvNotice.setVisibility(View.GONE);
+        updateNotice();
     }
 
     /** Slide the moving tile one place left (-1) or right (+1), animating both tiles into place. */
@@ -932,7 +935,7 @@ public class MainActivity extends Activity {
         moveRing = null;
         if (card != null) card.animate().translationY(0).setDuration(180).start();
         moveHint.setVisibility(View.GONE);
-        esvNotice.setVisibility(esvShown ? View.VISIBLE : View.GONE);
+        updateNotice();
     }
 
     /** Packages in the dock as shown now, left to right. */
@@ -1380,7 +1383,12 @@ public class MainActivity extends Activity {
             }
         }
         verseRef.setText((v[0] + "  ·  " + label).toUpperCase(Locale.getDefault()));
-        esvNotice.setVisibility(esvShown && movingPkg == null ? View.VISIBLE : View.GONE);
+        updateNotice();
+    }
+
+    /** When enabled, the notice shows while ESV text is on the card, except during move mode. */
+    private void updateNotice() {
+        if (esvNotice != null) esvNotice.setVisibility(esvShown && movingPkg == null ? View.VISIBLE : View.GONE);
     }
 
     // ---------------------------------------------------------------- ESV
