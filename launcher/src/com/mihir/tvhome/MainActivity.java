@@ -155,7 +155,7 @@ public class MainActivity extends Activity {
     static final int VERSE_CARD_DP = 560, VERSE_MAX_LINES = 4;
     private TextView greeting, clock, ampm, date, weather, title, verseText, verseRef, appsLabel;
     private View wifiButton;      // the focusable round button
-    private ImageView wifiIconView; // its icon, swapped as the network state changes
+    private ImageView[] wifiIconViews; // its 48px and 52px icon layers, swapped as the network state changes
     private int wifiIcon;
     private final List<String[]> verses = new ArrayList<>();
     private long verseDay = -1;
@@ -514,7 +514,8 @@ public class MainActivity extends Activity {
         right.setGravity(Gravity.CENTER_VERTICAL);
         right.setClipChildren(false);
         wifiButton = roundButton(R.drawable.ic_wifi_off, "Wi-Fi"); // updateWifi sets the state icon
-        wifiIconView = (ImageView) ((ViewGroup) wifiButton).getChildAt(1);
+        wifiIconViews = new ImageView[]{(ImageView) ((ViewGroup) wifiButton).getChildAt(1),
+                (ImageView) ((ViewGroup) wifiButton).getChildAt(2)};
         // Android 9 builds without a Wi-Fi screen get the main Settings screen instead.
         wifiButton.setOnClickListener(v -> openSettings(Settings.ACTION_WIFI_SETTINGS));
         View settings = roundButton(R.drawable.ic_settings, "Settings");
@@ -562,27 +563,28 @@ public class MainActivity extends Activity {
         circle.setBackground(bg); // its oval outline also shapes the elevation shadow
         b.addView(circle, new FrameLayout.LayoutParams(-1, -1));
 
-        ImageView img = new ImageView(this);
-        img.setDuplicateParentStateEnabled(true); // the icon's colour lists follow the button's focus
-        img.setImageResource(icon);
-        img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        // Two copies of the icon, one drawn at 48px and one at 52px, never resized: resizing one
+        // drawable 48 -> 52 -> 48px left the unfocused icon soft afterwards. Focus crossfades them.
         int buttonPx = dp(48), iconPx = dp(24);
         int focusedIconPx = Math.round(iconPx * 1.1f / 2) * 2; // 1.1x, whole and even: 48px -> 52px at xhdpi
-        int padIdle = (buttonPx - iconPx) / 2, padFocused = (buttonPx - focusedIconPx) / 2;
-        img.setPadding(padIdle, padIdle, padIdle, padIdle);
-        b.addView(img, new FrameLayout.LayoutParams(-1, -1));
+        ImageView small = iconLayer(icon, (buttonPx - iconPx) / 2);
+        ImageView large = iconLayer(icon, (buttonPx - focusedIconPx) / 2);
+        large.setAlpha(0f);
+        large.setVisibility(View.INVISIBLE);
+        b.addView(small, new FrameLayout.LayoutParams(-1, -1));
+        b.addView(large, new FrameLayout.LayoutParams(-1, -1));
 
         b.setOnFocusChangeListener((v, has) -> {
-            // One soft elevation shadow, only on the focused button; the icon rides above it.
+            // One soft elevation shadow, only on the focused button; the icons ride above it.
             circle.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f).translationZ(has ? dp(6) : 0)
                     .setInterpolator(new DecelerateInterpolator()).setDuration(150).start();
-            img.animate().translationZ(has ? dp(6) : 0)
-                    .setInterpolator(new DecelerateInterpolator()).setDuration(150).start();
-            ValueAnimator grow = ValueAnimator.ofInt(img.getPaddingLeft(), has ? padFocused : padIdle);
-            grow.setInterpolator(new DecelerateInterpolator());
-            grow.setDuration(150);
-            grow.addUpdateListener(a -> { int pad = (int) a.getAnimatedValue(); img.setPadding(pad, pad, pad, pad); });
-            grow.start();
+            ImageView in = has ? large : small, out = has ? small : large;
+            in.setVisibility(View.VISIBLE);
+            in.animate().alpha(1f).translationZ(has ? dp(6) : 0)
+                    .setInterpolator(new DecelerateInterpolator()).setDuration(150).withEndAction(null).start();
+            out.animate().alpha(0f).translationZ(has ? dp(6) : 0)
+                    .setInterpolator(new DecelerateInterpolator()).setDuration(150)
+                    .withEndAction(() -> { if (out.getAlpha() == 0f) out.setVisibility(View.INVISIBLE); }).start();
             if (has) { lastFocusedId = v.getId(); scroll.smoothScrollTo(0, 0); fadeGlow(1f); }
         });
         return b;
@@ -1219,6 +1221,16 @@ public class MainActivity extends Activity {
                 .apply();
     }
 
+    /** One icon layer of a round button: the vector centred with fixed padding, colours following focus. */
+    private ImageView iconLayer(int icon, int pad) {
+        ImageView img = new ImageView(this);
+        img.setDuplicateParentStateEnabled(true); // the icon's colour lists follow the button's focus
+        img.setImageResource(icon);
+        img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        img.setPadding(pad, pad, pad, pad);
+        return img;
+    }
+
     /** Packages in the dock as shown now, left to right. */
     private List<String> shownDock() {
         List<String> shown = new ArrayList<>();
@@ -1302,7 +1314,7 @@ public class MainActivity extends Activity {
             icon = R.drawable.ic_wifi_off;
             state = wm != null && !wm.isWifiEnabled() ? "off" : "not connected";
         }
-        if (icon != wifiIcon) { wifiIcon = icon; wifiIconView.setImageResource(icon); }
+        if (icon != wifiIcon) { wifiIcon = icon; for (ImageView v : wifiIconViews) v.setImageResource(icon); }
         wifiButton.setContentDescription("Wi-Fi, " + state);
     }
 
