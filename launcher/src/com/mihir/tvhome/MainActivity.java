@@ -154,7 +154,8 @@ public class MainActivity extends Activity {
     // 560dp keeps the verse card clear of the schedule card on the right at any height.
     static final int VERSE_CARD_DP = 560, VERSE_MAX_LINES = 4;
     private TextView greeting, clock, ampm, date, weather, title, verseText, verseRef, appsLabel;
-    private ImageView wifiButton;
+    private View wifiButton;      // the focusable round button
+    private ImageView wifiIconView; // its icon, swapped as the network state changes
     private int wifiIcon;
     private final List<String[]> verses = new ArrayList<>();
     private long verseDay = -1;
@@ -513,11 +514,12 @@ public class MainActivity extends Activity {
         right.setGravity(Gravity.CENTER_VERTICAL);
         right.setClipChildren(false);
         wifiButton = roundButton(R.drawable.ic_wifi_off, "Wi-Fi"); // updateWifi sets the state icon
+        wifiIconView = (ImageView) ((ViewGroup) wifiButton).getChildAt(1);
         // Android 9 builds without a Wi-Fi screen get the main Settings screen instead.
         wifiButton.setOnClickListener(v -> openSettings(Settings.ACTION_WIFI_SETTINGS));
-        ImageView settings = roundButton(R.drawable.ic_settings, "Settings");
+        View settings = roundButton(R.drawable.ic_settings, "Settings");
         settings.setOnClickListener(v -> openSettings(Settings.ACTION_SETTINGS));
-        for (ImageView b : new ImageView[]{wifiButton, settings}) {
+        for (View b : new View[]{wifiButton, settings}) {
             right.addView(b, llp(dp(48), dp(48), b == settings ? dp(12) : 0, 0, 0, 0));
             pills.add(b);
         }
@@ -529,17 +531,20 @@ public class MainActivity extends Activity {
      * A 48dp round "soft glass" icon button: white at 14% with a 22% hairline when unfocused,
      * solid #F4F6FA when focused. The icon's colours follow the focus state through its colour
      * state lists (res/color), so nothing is recoloured in code.
+     *
+     * Only the circle is scaled on focus. The icon is never scaled as a view (that would stretch its
+     * rendered bitmap and soften it); instead its padding shrinks so the vector is drawn afresh at
+     * the larger size, rounded to whole, even pixels so it stays centred and crisp.
      */
-    private ImageView roundButton(int icon, String description) {
-        ImageView b = new ImageView(this);
+    private View roundButton(int icon, String description) {
+        FrameLayout b = new FrameLayout(this);
         b.setId(View.generateViewId());
         b.setFocusable(true);
         b.setClickable(true);
         b.setDefaultFocusHighlightEnabled(false); // the button draws its own focus state
         b.setContentDescription(description);
-        b.setImageResource(icon);
-        b.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
-        b.setPadding(dp(12), dp(12), dp(12), dp(12)); // 24dp icon in a 48dp circle
+        b.setClipChildren(false);
+
         GradientDrawable glass = new GradientDrawable();
         glass.setShape(GradientDrawable.OVAL);
         glass.setColor(0x24FFFFFF);
@@ -550,15 +555,37 @@ public class MainActivity extends Activity {
         StateListDrawable bg = new StateListDrawable();
         bg.addState(new int[]{android.R.attr.state_focused}, solid);
         bg.addState(new int[0], glass);
-        b.setBackground(bg); // its oval outline also shapes the elevation shadow
+        View circle = new View(this);
+        circle.setDuplicateParentStateEnabled(true);
+        circle.setBackground(bg); // its oval outline also shapes the elevation shadow
+        b.addView(circle, new FrameLayout.LayoutParams(-1, -1));
+
+        ImageView img = new ImageView(this);
+        img.setDuplicateParentStateEnabled(true); // the icon's colour lists follow the button's focus
+        img.setImageResource(icon);
+        img.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        int buttonPx = dp(48), iconPx = dp(24);
+        int focusedIconPx = Math.round(iconPx * 1.1f / 2) * 2; // 1.1x, whole and even: 48px -> 52px at xhdpi
+        int padIdle = (buttonPx - iconPx) / 2, padFocused = (buttonPx - focusedIconPx) / 2;
+        img.setPadding(padIdle, padIdle, padIdle, padIdle);
+        b.addView(img, new FrameLayout.LayoutParams(-1, -1));
+
         b.setOnFocusChangeListener((v, has) -> {
-            // One soft elevation shadow, only on the focused button.
-            v.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f).translationZ(has ? dp(6) : 0)
+            // One soft elevation shadow, only on the focused button; the icon rides above it.
+            circle.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f).translationZ(has ? dp(6) : 0)
                     .setInterpolator(new DecelerateInterpolator()).setDuration(150).start();
+            img.animate().translationZ(has ? dp(6) : 0)
+                    .setInterpolator(new DecelerateInterpolator()).setDuration(150).start();
+            ValueAnimator grow = ValueAnimator.ofInt(img.getPaddingLeft(), has ? padFocused : padIdle);
+            grow.setInterpolator(new DecelerateInterpolator());
+            grow.setDuration(150);
+            grow.addUpdateListener(a -> { int pad = (int) a.getAnimatedValue(); img.setPadding(pad, pad, pad, pad); });
+            grow.start();
             if (has) { lastFocusedId = v.getId(); scroll.smoothScrollTo(0, 0); fadeGlow(1f); }
         });
         return b;
     }
+
 
     private View buildVerseCard() {
         LinearLayout card = new LinearLayout(this);
@@ -1273,7 +1300,7 @@ public class MainActivity extends Activity {
             icon = R.drawable.ic_wifi_off;
             state = wm != null && !wm.isWifiEnabled() ? "off" : "not connected";
         }
-        if (icon != wifiIcon) { wifiIcon = icon; wifiButton.setImageResource(icon); }
+        if (icon != wifiIcon) { wifiIcon = icon; wifiIconView.setImageResource(icon); }
         wifiButton.setContentDescription("Wi-Fi, " + state);
     }
 
