@@ -13,7 +13,9 @@ Follow these for every UI change to the launcher. It is a TV seen from about 3 m
    on colour alone.
 4. **Focus:** the focused item is always unmistakable. Scale about 1.08 with a clear contrast
    change, 150 to 200 ms ease-out. Unfocused items stay calm.
-5. **Motion:** short and purposeful, 150 to 250 ms. Nothing animates while idle.
+5. **Motion:** short and purposeful, 150 to 250 ms. Nothing animates while idle. Exception: the
+   slow wallpaper crossfade every 10 minutes stays, because it is a core part of the look. Do not
+   remove or shorten it.
 6. **Cost:** no blur or RenderScript, no big shadows on many views, no full-screen overdraw. Keep
    total launcher memory under 40 MB.
 7. **Icons:** simple line icons, one stroke weight, drawn as vectors, with content descriptions.
