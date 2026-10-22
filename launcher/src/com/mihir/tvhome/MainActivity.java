@@ -98,6 +98,12 @@ public class MainActivity extends Activity {
     // save left beyond the cap (or not installed) are kept in order in dockOverflow, so raising
     // DOCK_MAX brings them back.
     private List<String> dockOrder, dockOverflow;
+    // The grid's order once rearranged (null until then: alphabetical). Dock apps and the Settings
+    // tile are not in it; apps it doesn't list go at the end, alphabetically.
+    private List<String> gridOrder;
+    private List<App> gridApps = new ArrayList<>();
+    // icon_aliases from config.xml: app package -> {package whose banner/icon to show, label or null}.
+    private final Map<String, String[]> iconAliases = new HashMap<>();
     private final Set<String> hidden = new HashSet<>();
     private String liveTvPkg, inputPickerPkg;
     private int cols;
@@ -107,7 +113,7 @@ public class MainActivity extends Activity {
         String pkg, label;
         Intent intent;
         Drawable art;
-        boolean isBanner;
+        boolean isBanner, isSettings;
         int color;
     }
 
@@ -173,6 +179,10 @@ public class MainActivity extends Activity {
     private String movingPkg;
     private View moveRing;
     private TextView moveHint;
+    // Grid moves rebind apps into the existing tiles, so nothing is detached and focus just moves.
+    private boolean movingInGrid;
+    private List<App> gridBefore;
+    private int moveIndex;
 
     // Registered only while resumed, so the weather check it runs happens only in the foreground.
     private final BroadcastReceiver tick = new BroadcastReceiver() {
@@ -207,6 +217,17 @@ public class MainActivity extends Activity {
         // A saved order longer than the cap is left as it is: buildApps shows the first DOCK_MAX
         // installed apps and the rest fall into the grid. Overflow rejoins only if the cap has grown.
         if (DOCK_MAX > prefs.getInt("dock_cap", DOCK_MAX)) dockOrder.addAll(dockOverflow);
+        String grid = prefs.getString("grid_order", null);
+        if (grid != null) gridOrder = new ArrayList<>(Arrays.asList(TextUtils.split(grid, ",")));
+        for (String entry : getResources().getStringArray(R.array.icon_aliases)) {
+            // "app=iconApp" or "app=iconApp|Label"
+            int eq = entry.indexOf('=');
+            if (eq <= 0) continue;
+            String target = entry.substring(eq + 1).trim(), label = null;
+            int bar = target.indexOf('|');
+            if (bar >= 0) { label = target.substring(bar + 1).trim(); target = target.substring(0, bar).trim(); }
+            if (!target.isEmpty()) iconAliases.put(entry.substring(0, eq).trim(), new String[]{target, label == null || label.isEmpty() ? null : label});
+        }
         hidden.addAll(Arrays.asList(getResources().getStringArray(R.array.hidden_apps)));
         hidden.add(getPackageName());
         cols = getResources().getInteger(R.integer.columns);
@@ -411,10 +432,9 @@ public class MainActivity extends Activity {
 
         // Sits in the gap under the dock, so showing it doesn't shift the layout.
         moveHint = text(12, "sans-serif-medium", 0xE6FFFFFF);
-        moveHint.setText("Use Left/Right to move, OK to save, Back to cancel");
         moveHint.setShadowLayer(dp(8), 0, dp(1), 0xCC000000);
         moveHint.setVisibility(View.GONE);
-        hero.addView(moveHint, lp(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, 0, 0, dp(7)));
+        root.addView(moveHint, lp(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, 0, 0, dp(7)));
 
         // Crossway's copyright notice and esv.org: one dim line on the bottom edge, shown whenever the
         // card shows ESV text. Only the spacing is tightened to fit; the wording is never cut.
@@ -567,6 +587,7 @@ public class MainActivity extends Activity {
         if (settings != null && settings.activityInfo != null) {
             App s = app(pm, settings, new Intent(Settings.ACTION_SETTINGS));
             s.label = "Settings";
+            s.isSettings = true;
             byPkg.put(s.pkg, s);
         }
 
@@ -574,7 +595,16 @@ public class MainActivity extends Activity {
         // Saved apps that are no longer installed are skipped.
         for (String p : dockOrder) if (dock.size() < DOCK_MAX && byPkg.containsKey(p)) dock.add(byPkg.remove(p));
         List<App> rest = new ArrayList<>(byPkg.values());
-        Collections.sort(rest, (x, y) -> x.label.compareToIgnoreCase(y.label));
+        App settingsTile = null;
+        for (App a : rest) if (a.isSettings) settingsTile = a;
+        rest.remove(settingsTile);
+        // Saved grid order first; anything it doesn't list (newly installed) after, alphabetically.
+        Collections.sort(rest, (x, y) -> {
+            int rx = gridRank(x.pkg), ry = gridRank(y.pkg);
+            return rx != ry ? Integer.compare(rx, ry) : x.label.compareToIgnoreCase(y.label);
+        });
+        if (settingsTile != null) rest.add(settingsTile); // always last
+        gridApps = rest;
 
         // Note what has focus before the tiles go; removing them would otherwise hand focus to a pill.
         View had = getCurrentFocus();
@@ -648,8 +678,29 @@ public class MainActivity extends Activity {
         if (banner == null) banner = ai.applicationInfo.loadBanner(pm);
         a.isBanner = banner != null;
         a.art = banner != null ? banner : ri.loadIcon(pm);
+        String[] alias = iconAliases.get(a.pkg);
+        if (alias != null) {
+            // Show another installed app's own banner (or icon); keep this app's art if it isn't installed.
+            boolean[] isBanner = new boolean[1];
+            Drawable other = installedArt(pm, alias[0], isBanner);
+            if (other != null) { a.art = other; a.isBanner = isBanner[0]; }
+            if (alias[1] != null) a.label = alias[1];
+        }
         a.color = sampleColor(a.pkg, a.art);
         return a;
+    }
+
+    /** An installed app's own TV banner, else its icon; null if the app isn't installed. */
+    private static Drawable installedArt(PackageManager pm, String pkg, boolean[] isBanner) {
+        try {
+            Intent tv = pm.getLeanbackLaunchIntentForPackage(pkg);
+            Drawable d = tv != null ? pm.getActivityBanner(tv) : null;
+            if (d == null) d = pm.getApplicationBanner(pkg);
+            isBanner[0] = d != null;
+            return d != null ? d : pm.getApplicationIcon(pkg);
+        } catch (PackageManager.NameNotFoundException e) {
+            return null;
+        }
     }
 
     /** A 16:9 card with the app's banner; the name shows under it while focused. */
@@ -659,32 +710,21 @@ public class MainActivity extends Activity {
         box.setClipChildren(false);
         box.setClipToPadding(false);
 
-        FrameLayout card = new AspectFrame(this);
+        AspectFrame card = new AspectFrame(this);
         card.setId(View.generateViewId());
         card.setFocusable(true);
         card.setDefaultFocusHighlightEnabled(false); // the ring and zoom show focus
         card.setClickable(true);
-        card.setTag(app);
         card.setClipToOutline(true);
         card.setOutlineProvider(new ViewOutlineProvider() {
             @Override public void getOutline(View v, Outline o) {
                 o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(10));
             }
         });
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(app.isBanner ? 0xFF1C1C1E : darken(app.color, 0.45f));
-        card.setBackground(bg);
-
-        ImageView img = new ImageView(this);
-        img.setImageDrawable(app.art);
-        if (app.isBanner) {
-            img.setScaleType(ImageView.ScaleType.CENTER_CROP);
-            card.addView(img, new FrameLayout.LayoutParams(-1, -1));
-        } else {
-            img.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            card.addView(img, new FrameLayout.LayoutParams(-1, -1));
-            img.setPadding(dp(22), dp(14), dp(22), dp(14));
-        }
+        card.bg = new GradientDrawable();
+        card.setBackground(card.bg);
+        card.img = new ImageView(this);
+        card.addView(card.img, new FrameLayout.LayoutParams(-1, -1));
 
         // Focus ring and sheen, drawn above the art.
         GradientDrawable ring = new GradientDrawable();
@@ -700,15 +740,16 @@ public class MainActivity extends Activity {
         box.addView(card, new LinearLayout.LayoutParams(-1, -2));
 
         TextView label = text(11, "sans-serif-medium", Color.WHITE);
-        label.setText(app.label);
         label.setSingleLine(true);
         label.setGravity(Gravity.CENTER);
         label.setAlpha(0f);
-        if (!inDock) box.addView(label, llp(-1, -2, 0, dp(10), 0, 0));
+        if (!inDock) { box.addView(label, llp(-1, -2, 0, dp(10), 0, 0)); card.label = label; }
+        bind(card, app);
 
-        card.setOnClickListener(v -> launch(new Intent(app.intent)));
-        // Long-press OK: move or remove a dock app, or add a grid app to the dock.
-        card.setOnLongClickListener(v -> { showAppMenu(v, app, inDock); return true; });
+        // The listeners read the app from the tile, since a grid move can put another app in it.
+        card.setOnClickListener(v -> launch(new Intent(((App) v.getTag()).intent)));
+        // Long-press OK: move or remove a dock app; move a grid app or add it to the dock.
+        card.setOnLongClickListener(v -> { showAppMenu(v, (App) v.getTag(), inDock); return true; });
         card.setOnFocusChangeListener((v, has) -> {
             float s = has ? (inDock ? 1.12f : 1.1f) : 1f;
             v.animate().scaleX(s).scaleY(s).translationZ(has ? dp(14) : 0)
@@ -718,12 +759,13 @@ public class MainActivity extends Activity {
             label.animate().alpha(has ? 1f : 0f).translationY(has ? dp(4) : 0).setDuration(200).start();
             if (!has) return;
             lastFocusedId = v.getId();
+            App onTile = (App) v.getTag();
             if (inDock) {
                 // Down from the pills returns to the dock app focus came up from.
                 for (View p : pills) p.setNextFocusDownId(v.getId());
-                title.setText(app.label);
+                title.setText(onTile.label);
                 title.animate().alpha(1f).setDuration(200).start();
-                animateGlow(app.color);
+                animateGlow(onTile.color);
                 fadeGlow(1f);
                 scroll.smoothScrollTo(0, 0);
             } else {
@@ -735,6 +777,17 @@ public class MainActivity extends Activity {
 
         (inDock ? dockCards : gridCards).add(card);
         return box;
+    }
+
+    /** Put an app on a tile: art, background, label and tag. */
+    private void bind(AspectFrame card, App app) {
+        card.setTag(app);
+        card.bg.setColor(app.isBanner ? 0xFF1C1C1E : darken(app.color, 0.45f));
+        card.img.setImageDrawable(app.art);
+        card.img.setScaleType(app.isBanner ? ImageView.ScaleType.CENTER_CROP : ImageView.ScaleType.FIT_CENTER);
+        if (app.isBanner) card.img.setPadding(0, 0, 0, 0);
+        else card.img.setPadding(dp(22), dp(14), dp(22), dp(14));
+        if (card.label != null) card.label.setText(app.label);
     }
 
     /**
@@ -862,12 +915,21 @@ public class MainActivity extends Activity {
             if (shown.size() > 1) rows.add(inputRow("Move", () -> startMove(card, app.pkg)));
             rows.add(inputRow("Remove from dock", () -> {
                 shown.remove(i);
+                // Back in the grid, a rearranged grid gets it at the end.
+                if (gridOrder != null && !gridOrder.contains(app.pkg)) { gridOrder.add(app.pkg); saveGridOrder(); }
                 saveDock(shown, shown.isEmpty() ? null : shown.get(Math.min(i, shown.size() - 1)), app.pkg);
             }));
-        } else if (shown.size() < DOCK_MAX) {
-            rows.add(inputRow("Add to dock", () -> { shown.add(app.pkg); saveDock(shown, app.pkg, null); }));
         } else {
-            rows.add(inputRow("Dock is full (" + DOCK_MAX + " apps)", () -> { }));
+            if (!app.isSettings && movableGridCount() > 1) rows.add(inputRow("Move", () -> startGridMove(card, app)));
+            if (shown.size() < DOCK_MAX) {
+                rows.add(inputRow("Add to dock", () -> {
+                    shown.add(app.pkg);
+                    if (gridOrder != null && gridOrder.remove(app.pkg)) saveGridOrder(); // dock apps aren't in the grid order
+                    saveDock(shown, app.pkg, null);
+                }));
+            } else {
+                rows.add(inputRow("Dock is full (" + DOCK_MAX + " apps)", () -> { }));
+            }
         }
         // The dock sits near the bottom of the screen, so its menu opens above the tile.
         showMenu(card, rows, Gravity.START, inDock);
@@ -876,6 +938,8 @@ public class MainActivity extends Activity {
     /** Move mode: highlight the tile, show the hint, and let Left/Right slide it (see dispatchKeyEvent). */
     private void startMove(View card, String pkg) {
         movingPkg = pkg;
+        movingInGrid = false;
+        moveHint.setText("Use Left/Right to move, OK to save, Back to cancel");
         card.requestFocus();
         GradientDrawable ring = new GradientDrawable();
         ring.setCornerRadius(dp(10));
@@ -917,6 +981,7 @@ public class MainActivity extends Activity {
 
     /** OK saves the new position; Back (or leaving home) puts the app back where it started. */
     private void finishMove(boolean save) {
+        if (movingInGrid) { finishGridMove(save); return; }
         String pkg = movingPkg;
         endMoveMode();
         if (save) {
@@ -936,11 +1001,79 @@ public class MainActivity extends Activity {
     private void endMoveMode() {
         View card = findCard(movingPkg);
         movingPkg = null;
+        movingInGrid = false;
         if (moveRing != null && moveRing.getParent() != null) ((ViewGroup) moveRing.getParent()).removeView(moveRing);
         moveRing = null;
         if (card != null) card.animate().translationY(0).setDuration(180).start();
         moveHint.setVisibility(View.GONE);
         updateNotice();
+    }
+
+    /** Grid apps that can be moved: all but the Settings tile, which stays last. */
+    private int movableGridCount() {
+        int n = gridApps.size();
+        return n > 0 && gridApps.get(n - 1).isSettings ? n - 1 : n;
+    }
+
+    private int gridRank(String pkg) {
+        int i = gridOrder == null ? -1 : gridOrder.indexOf(pkg);
+        return i < 0 ? Integer.MAX_VALUE : i;
+    }
+
+    /** Grid move mode: ring the tile and let the arrows slide the app through the grid. */
+    private void startGridMove(View card, App app) {
+        movingPkg = app.pkg;
+        movingInGrid = true;
+        gridBefore = new ArrayList<>(gridApps);
+        moveIndex = gridApps.indexOf(app);
+        card.requestFocus();
+        GradientDrawable ring = new GradientDrawable();
+        ring.setCornerRadius(dp(10));
+        ring.setStroke(dp(4), 0xFF5AC8FA);
+        moveRing = new View(this);
+        moveRing.setBackground(ring);
+        ((ViewGroup) card).addView(moveRing, new FrameLayout.LayoutParams(-1, -1));
+        moveHint.setText("Use the arrows to move, OK to save, Back to cancel");
+        moveHint.setVisibility(View.VISIBLE);
+        updateNotice();
+    }
+
+    /**
+     * Move the app delta places in grid order (±1 for Left/Right, ±cols for Up/Down): the apps
+     * between shift along, and the ring and focus follow it. Down from the row above a short last
+     * row goes to the last place; Up from the first row and moves past the ends do nothing.
+     */
+    private void moveGridBy(int delta) {
+        int last = movableGridCount() - 1, j = moveIndex + delta;
+        if (j > last && delta == cols && moveIndex / cols < last / cols) j = last;
+        if (j < 0 || j > last || j == moveIndex) return;
+        gridApps.add(j, gridApps.remove(moveIndex));
+        for (int k = Math.min(moveIndex, j); k <= Math.max(moveIndex, j); k++) bind((AspectFrame) gridCards.get(k), gridApps.get(k));
+        View card = gridCards.get(j);
+        ((ViewGroup) moveRing.getParent()).removeView(moveRing);
+        ((ViewGroup) card).addView(moveRing, new FrameLayout.LayoutParams(-1, -1));
+        moveIndex = j;
+        card.requestFocus();
+    }
+
+    /** OK keeps and saves the new grid order; Back puts every app back where it was. */
+    private void finishGridMove(boolean save) {
+        String pkg = movingPkg;
+        endMoveMode();
+        if (save) {
+            gridOrder = new ArrayList<>();
+            for (App a : gridApps) if (!a.isSettings) gridOrder.add(a.pkg);
+            saveGridOrder();
+        } else {
+            gridApps = gridBefore;
+            for (int k = 0; k < gridApps.size() && k < gridCards.size(); k++) bind((AspectFrame) gridCards.get(k), gridApps.get(k));
+        }
+        View c = findCard(pkg);
+        if (c != null) c.requestFocus();
+    }
+
+    private void saveGridOrder() {
+        getPreferences(MODE_PRIVATE).edit().putString("grid_order", TextUtils.join(",", gridOrder)).apply();
     }
 
     /**
@@ -1756,17 +1889,20 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
-        // Move mode takes the remote: Left/Right slide, OK saves, Back cancels, Up/Down do nothing.
+        // Move mode takes the remote: Left/Right slide (and Up/Down in the grid; in the dock they do
+        // nothing), OK saves, Back cancels.
         if (movingPkg != null) {
             boolean down = e.getAction() == KeyEvent.ACTION_DOWN, up = e.getAction() == KeyEvent.ACTION_UP;
             switch (e.getKeyCode()) {
-                case KeyEvent.KEYCODE_DPAD_LEFT: if (down) moveBy(-1); return true;
-                case KeyEvent.KEYCODE_DPAD_RIGHT: if (down) moveBy(1); return true;
+                case KeyEvent.KEYCODE_DPAD_LEFT: if (down) { if (movingInGrid) moveGridBy(-1); else moveBy(-1); } return true;
+                case KeyEvent.KEYCODE_DPAD_RIGHT: if (down) { if (movingInGrid) moveGridBy(1); else moveBy(1); } return true;
+                case KeyEvent.KEYCODE_DPAD_UP: if (down && movingInGrid) moveGridBy(-cols); return true;
+                case KeyEvent.KEYCODE_DPAD_DOWN: if (down && movingInGrid) moveGridBy(cols); return true;
                 case KeyEvent.KEYCODE_DPAD_CENTER: case KeyEvent.KEYCODE_ENTER: case KeyEvent.KEYCODE_NUMPAD_ENTER:
                     if (up) finishMove(true);
                     return true;
                 case KeyEvent.KEYCODE_BACK: if (up) finishMove(false); return true;
-                case KeyEvent.KEYCODE_DPAD_UP: case KeyEvent.KEYCODE_DPAD_DOWN: case KeyEvent.KEYCODE_MENU: return true;
+                case KeyEvent.KEYCODE_MENU: return true;
                 default: break;
             }
         }
@@ -1780,6 +1916,9 @@ public class MainActivity extends Activity {
 
     /** 16:9 container. */
     static final class AspectFrame extends FrameLayout {
+        ImageView img;
+        GradientDrawable bg;
+        TextView label; // grid tiles only
         AspectFrame(Context c) { super(c); }
         @Override protected void onMeasure(int w, int h) {
             int width = MeasureSpec.getSize(w);
