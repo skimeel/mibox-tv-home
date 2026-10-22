@@ -176,17 +176,6 @@ public class MainActivity extends Activity {
     private int packageSeq;
     private PopupWindow popup;
     // Move mode: the dock app being slid with Left/Right, its highlight, and the hint under the dock.
-    // Quick settings: a dim over the whole home screen and a panel from the right, opened by the pills.
-    static final int PANEL_DP = 480;
-    private View panelDim, panelOpener;
-    private LinearLayout panel, panelRows;
-    private TextView wifiRowTitle, wifiRowState;
-    private boolean panelOpen;
-    // The network state as the Wi-Fi pill shows it, kept for the panel's Wi-Fi row.
-    private int netIcon = R.drawable.ic_wifi_off;
-    private boolean netDim;
-    private String netState = "Not connected";
-
     private String movingPkg;
     private View moveRing;
     private TextView moveHint;
@@ -327,7 +316,6 @@ public class MainActivity extends Activity {
         handler.removeCallbacks(rotateWallpaper);
         unregisterReceiver(tick);
         if (popup != null) popup.dismiss();
-        closePanel(false); // back from a system screen, home shows normally
         if (movingPkg != null) finishMove(false);
     }
 
@@ -342,7 +330,6 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         // Home pressed while already home: jump back to the first dock app.
         if (popup != null) popup.dismiss();
-        closePanel(false);
         if (movingPkg != null) finishMove(false);
         if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
         scroll.smoothScrollTo(0, 0);
@@ -449,32 +436,6 @@ public class MainActivity extends Activity {
         moveHint.setVisibility(View.GONE);
         root.addView(moveHint, lp(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, 0, 0, dp(7)));
 
-        // Quick settings, above everything: a 60% black dim and a full-height panel on the right.
-        panelDim = new View(this);
-        panelDim.setBackgroundColor(0x99000000);
-        panelDim.setAlpha(0f);
-        panelDim.setVisibility(View.GONE);
-        panelDim.setClickable(true); // swallow touches meant for the home screen behind
-        root.addView(panelDim, new FrameLayout.LayoutParams(-1, -1));
-        panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setPadding(dp(28), dp(40), dp(28), dp(28));
-        GradientDrawable panelBg = new GradientDrawable();
-        panelBg.setColor(0xEB1C1C1E);
-        float r = dp(24);
-        panelBg.setCornerRadii(new float[]{r, r, 0, 0, 0, 0, r, r}); // rounded on the inner (left) side
-        panel.setBackground(panelBg);
-        panel.setElevation(dp(16));
-        panel.setVisibility(View.GONE);
-        TextView panelTitle = text(11, "sans-serif-medium", 0x99FFFFFF);
-        panelTitle.setText("QUICK SETTINGS");
-        panelTitle.setLetterSpacing(0.22f);
-        panel.addView(panelTitle, llp(-2, -2, dp(16), 0, 0, dp(16)));
-        panelRows = new LinearLayout(this);
-        panelRows.setOrientation(LinearLayout.VERTICAL);
-        panel.addView(panelRows, new LinearLayout.LayoutParams(-1, -2));
-        root.addView(panel, new FrameLayout.LayoutParams(dp(PANEL_DP), -1, Gravity.END));
-
         // Crossway's copyright notice and esv.org: one dim line on the bottom edge, shown whenever the
         // card shows ESV text. Only the spacing is tightened to fit; the wording is never cut.
         // Turned off by default (show_esv_notice); then the view isn't created, so it never shows or takes space.
@@ -541,9 +502,9 @@ public class MainActivity extends Activity {
         wifiPill = pill("Wi-Fi", null); // updateWifi sets the network name and state icon
         wifiPill.setCompoundDrawablePadding(dp(7));
         // Android 9 builds without a Wi-Fi screen get the main Settings screen instead.
-        wifiPill.setOnClickListener(v -> openPanel(v, true));
+        wifiPill.setOnClickListener(v -> openSettings(Settings.ACTION_WIFI_SETTINGS));
         TextView settings = pill("Settings", "⚙");
-        settings.setOnClickListener(v -> openPanel(v, false));
+        settings.setOnClickListener(v -> openSettings(Settings.ACTION_SETTINGS));
         for (TextView p : new TextView[]{wifiPill, settings}) {
             right.addView(p, llp(-2, dp(30), dp(10), 0, 0, 0));
             pills.add(p);
@@ -1202,15 +1163,13 @@ public class MainActivity extends Activity {
         boolean working = c != null && c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 && c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
         int icon;
-        String name, state;
+        String name;
         boolean dim = false;
         if (c != null && c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
             icon = working ? R.drawable.ic_ethernet : R.drawable.ic_ethernet_alert;
             name = "Ethernet";
-            state = working ? "Ethernet" : "Ethernet, no internet";
         } else if (c != null) {
             icon = working ? R.drawable.ic_wifi : R.drawable.ic_wifi_alert;
-            state = working ? "Connected" : "Connected, no internet";
             name = "Wi-Fi";
             String s = info == null ? null : info.getSSID();
             // The name needs the location permission granted at install; otherwise it reads <unknown ssid>.
@@ -1218,16 +1177,11 @@ public class MainActivity extends Activity {
         } else if (wm != null && wm.isWifiEnabled() && info != null && isConnecting(info.getSupplicantState())) {
             icon = R.drawable.ic_wifi;
             dim = true;
-            name = state = "Connecting…";
+            name = "Connecting…";
         } else {
             icon = R.drawable.ic_wifi_off;
             name = wm != null && !wm.isWifiEnabled() ? "Wi-Fi off" : "Offline";
-            state = "Not connected";
         }
-        netIcon = icon;
-        netDim = dim;
-        netState = state;
-        if (wifiRowTitle != null) showWifiRowState();
         Drawable d = getDrawable(icon).mutate();
         d.setAlpha(dim ? 100 : 255);
         d.setBounds(0, 0, dp(16), dp(16));
@@ -1246,125 +1200,6 @@ public class MainActivity extends Activity {
             default:
                 return false;
         }
-    }
-
-    // ---------------------------------------------------------------- quick settings
-
-    /**
-     * Dim the home screen and slide in the quick-settings panel, focused on Wi-Fi (from the Wi-Fi
-     * pill) or All settings (from the Settings pill). Not during move mode or with a menu open.
-     */
-    private void openPanel(View opener, boolean wifiFocus) {
-        if (panelOpen || movingPkg != null || popup != null) return;
-        panelOpen = true;
-        panelOpener = opener;
-        List<View> rows = new ArrayList<>();
-        panelRows.removeAllViews();
-        rows.add(panelRow("Wi-Fi", true, new Intent(Settings.ACTION_WIFI_SETTINGS)));
-        // Bluetooth, Display and Sound only if this device has those screens.
-        String[][] optional = {
-                {"Bluetooth", Settings.ACTION_BLUETOOTH_SETTINGS},
-                {"Display", Settings.ACTION_DISPLAY_SETTINGS},
-                {"Sound", Settings.ACTION_SOUND_SETTINGS}};
-        for (String[] o : optional) {
-            Intent i = new Intent(o[1]);
-            if (i.resolveActivity(getPackageManager()) != null) rows.add(panelRow(o[0], false, i));
-        }
-        rows.add(panelRow("All settings", false, new Intent(Settings.ACTION_SETTINGS)));
-        for (int i = 0; i < rows.size(); i++) {
-            View row = rows.get(i);
-            panelRows.addView(row, llp(-1, -2, 0, 0, 0, dp(6)));
-            // Focus stays in the panel: Up/Down between rows, nothing past the ends or to the sides.
-            row.setNextFocusUpId(rows.get(Math.max(0, i - 1)).getId());
-            row.setNextFocusDownId(rows.get(Math.min(rows.size() - 1, i + 1)).getId());
-            row.setNextFocusLeftId(row.getId());
-            row.setNextFocusRightId(row.getId());
-        }
-        showWifiRowState();
-
-        panelDim.animate().cancel();
-        panelDim.setVisibility(View.VISIBLE);
-        panelDim.animate().alpha(1f).setDuration(200).start();
-        panel.animate().cancel();
-        panel.setVisibility(View.VISIBLE);
-        panel.setTranslationX(dp(PANEL_DP));
-        panel.animate().translationX(0).setInterpolator(new DecelerateInterpolator(2f)).setDuration(220).start();
-        (wifiFocus ? rows.get(0) : rows.get(rows.size() - 1)).requestFocus();
-        // Nothing on the home screen behind can take focus while the panel is open.
-        scroll.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
-    }
-
-    /** Close the panel (slid out, or at once when leaving home) and give focus back to its pill. */
-    private void closePanel(boolean animate) {
-        if (!panelOpen) return;
-        panelOpen = false;
-        for (int i = 0; i < panelRows.getChildCount(); i++) panelRows.getChildAt(i).setFocusable(false);
-        wifiRowTitle = wifiRowState = null;
-        scroll.setDescendantFocusability(ViewGroup.FOCUS_AFTER_DESCENDANTS);
-        if (panelOpener != null) panelOpener.requestFocus();
-        panel.animate().cancel();
-        panelDim.animate().cancel();
-        if (animate) {
-            panel.animate().translationX(dp(PANEL_DP)).setInterpolator(new DecelerateInterpolator()).setDuration(180)
-                    .withEndAction(() -> { if (!panelOpen) { panel.setVisibility(View.GONE); panelRows.removeAllViews(); } }).start();
-            panelDim.animate().alpha(0f).setDuration(180)
-                    .withEndAction(() -> { if (!panelOpen) panelDim.setVisibility(View.GONE); }).start();
-        } else {
-            panel.setVisibility(View.GONE);
-            panelRows.removeAllViews();
-            panelDim.setAlpha(0f);
-            panelDim.setVisibility(View.GONE);
-        }
-    }
-
-    /** A focusable panel row; OK opens its screen, or the main Settings screen if that fails. */
-    private View panelRow(String title, boolean wifi, Intent intent) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setId(View.generateViewId());
-        row.setFocusable(true);
-        row.setClickable(true);
-        row.setDefaultFocusHighlightEnabled(false);
-        row.setContentDescription(title);
-        row.setPadding(dp(18), dp(14), dp(18), dp(14));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(14));
-        bg.setColor(Color.TRANSPARENT);
-        row.setBackground(bg);
-        TextView t = text(16, "sans-serif-medium", Color.WHITE);
-        t.setText(title);
-        row.addView(t);
-        TextView state = null;
-        if (wifi) {
-            t.setCompoundDrawablePadding(dp(10));
-            state = text(12, "sans-serif", 0xB3FFFFFF);
-            row.addView(state, llp(-2, -2, dp(28), dp(3), 0, 0));
-            wifiRowTitle = t;
-            wifiRowState = state;
-        }
-        TextView sub = state;
-        row.setOnFocusChangeListener((v, has) -> {
-            bg.setColor(has ? 0xF2FFFFFF : Color.TRANSPARENT);
-            t.setTextColor(has ? 0xFF111111 : Color.WHITE);
-            t.setCompoundDrawableTintList(ColorStateList.valueOf(t.getCurrentTextColor()));
-            if (sub != null) sub.setTextColor(has ? 0xB3111111 : 0xB3FFFFFF);
-        });
-        row.setOnClickListener(v -> {
-            closePanel(false);
-            if (!launch(new Intent(intent))) launch(new Intent(Settings.ACTION_SETTINGS));
-        });
-        return row;
-    }
-
-    /** The panel's Wi-Fi row mirrors the pill's state and icon, without the network's name. */
-    private void showWifiRowState() {
-        if (wifiRowTitle == null) return;
-        Drawable d = getDrawable(netIcon).mutate();
-        d.setAlpha(netDim ? 100 : 255);
-        d.setBounds(0, 0, dp(18), dp(18));
-        wifiRowTitle.setCompoundDrawablesRelative(d, null, null, null);
-        wifiRowTitle.setCompoundDrawableTintList(ColorStateList.valueOf(wifiRowTitle.getCurrentTextColor()));
-        wifiRowState.setText(netState);
     }
 
     // ---------------------------------------------------------------- weather
@@ -2002,6 +1837,21 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * The pills' system screens: a plain startActivity from this activity, no extra flags, so Back
+     * there returns straight home. Android 9 builds without the Wi-Fi screen get main Settings.
+     */
+    private void openSettings(String action) {
+        try {
+            startActivity(new Intent(action));
+        } catch (RuntimeException e) {
+            if (Settings.ACTION_SETTINGS.equals(action)) return;
+            try {
+                startActivity(new Intent(Settings.ACTION_SETTINGS));
+            } catch (RuntimeException ignored) { }
+        }
+    }
+
     private boolean isInstalled(String pkg) {
         if (pkg == null || pkg.isEmpty()) return false;
         try {
@@ -2068,15 +1918,6 @@ public class MainActivity extends Activity {
                 case KeyEvent.KEYCODE_MENU: return true;
                 default: break;
             }
-        }
-        // With the panel open, Back closes it and Menu does nothing; the arrows stay inside it.
-        if (panelOpen) {
-            if (e.getKeyCode() == KeyEvent.KEYCODE_BACK) {
-                if (e.getAction() == KeyEvent.ACTION_UP) closePanel(true);
-                return true;
-            }
-            if (e.getKeyCode() == KeyEvent.KEYCODE_MENU) return true;
-            return super.dispatchKeyEvent(e);
         }
         // Menu key on the remote opens the Inputs dropdown (it falls back to Settings).
         if (e.getKeyCode() == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP && popup == null) {
