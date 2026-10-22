@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Material Symbols "wifi", outlined, weight 300 (google/material-design-icons, Apache 2.0) with a hand-drawn "!" badge: connected, no internet. -->
+<!-- Material Symbols "wifi", outlined, weight 400, fill 0, grade 0, optical size 24 (google/material-design-icons @49d4db3, Apache 2.0) with a hand-drawn "!" badge: connected, no internet. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp"
     android:viewportWidth="960" android:viewportHeight="960">
     <path android:fillColor="@color/qs_icon"
-        android:pathData="M480 828.46q-33.92 0 -57.35 -23.42 -23.42 -23.42 -23.42 -57.35 0 -33.92 23.42 -57.34 23.43 -23.42 57.35 -23.42t57.35 23.42q23.42 23.42 23.42 57.34 0 33.93 -23.42 57.35 -23.43 23.42 -57.35 23.42ZM254 614l-62.46 -63.69q55.54 -55.54 129.33 -87.54 73.8 -32 159.19 -32 85.4 0 159.13 32.31 73.73 32.31 129.27 88.46L706 614q-44 -44 -102 -69t-124 -25q-66 0 -124 25t-102 69ZM84 444l-62.46 -62.46q87.77 -89 205 -139.88Q343.77 190.77 480 190.77q136.23 0 253.46 50.89 117.23 50.88 205 139.88L876 444q-77 -77 -178.5 -120.5T480 280q-116 0 -217.5 43.5T84 444Z" />
+        android:pathData="M480 840q-42 0 -71 -29t-29 -71q0 -42 29 -71t71 -29q42 0 71 29t29 71q0 42 -29 71t-71 29ZM254 614l-84 -86q59 -59 138.5 -93.5T480 400q92 0 171.5 35T790 530l-84 84q-44 -44 -102 -69t-124 -25q-66 0 -124 25t-102 69ZM84 444 0 360q92 -94 215 -147t265 -53q142 0 265 53t215 147l-84 84q-77 -77 -178.5 -120.5T480 280q-116 0 -217.5 43.5T84 444Z" />
     <!-- Hand-drawn "!" badge (Material has no "no internet" icon), filled with the button's colour. -->
     <path android:pathData="M544,744 a200,200 0 1,0 400,0 a200,200 0 1,0 -400,0"
         android:fillColor="@color/qs_fill_solid"

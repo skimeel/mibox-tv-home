@@ -101,8 +101,9 @@ Undo everything with `tools/restore.sh <the same list>`.
 
 Change the dock: edit `config.xml`, then run `launcher/build-and-install.sh`.
 
-Icons are [Material Symbols](https://github.com/google/material-design-icons) (outlined, weight
-300, Apache License 2.0), converted to vector drawables in `launcher/res/drawable/`. The "!" badge for
+Icons are [Material Symbols](https://github.com/google/material-design-icons) (outlined, Apache
+License 2.0), converted to vector drawables in `launcher/res/drawable/`: weight 400 for the Wi-Fi
+and Settings buttons (white on glass needs the heavier stroke), weight 300 for the rest. The "!" badge for
 "no internet" is hand-drawn, since Material has no such icon.
 
 ## Gotchas we hit
