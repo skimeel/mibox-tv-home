@@ -19,5 +19,7 @@ Follow these for every UI change to the launcher. It is a TV seen from about 3 m
 6. **Cost:** no blur or RenderScript, no big shadows on many views, no full-screen overdraw. Keep
    total launcher memory under 40 MB.
 7. **Icons:** simple line icons, one stroke weight, drawn as vectors, with content descriptions.
+   Use Material Symbols, outlined, with the weight chosen in the icon audit, drawn as vector
+   drawables. Hand-draw only when Material has no matching icon.
 8. **Restraint:** fewer elements, more space. If it does not help in the first five seconds, leave
    it out.
