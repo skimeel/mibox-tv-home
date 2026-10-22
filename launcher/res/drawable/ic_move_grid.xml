@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols "drag_pan", outlined, weight 300 (google/material-design-icons, Apache 2.0). Move-mode hint in the grid. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="960" android:viewportHeight="960">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M480 866.15 323.85 710l42.77 -42.77L450 750.62V510H210l83.38 82.77L250 636.15 93.85 480l155.53 -155.54 42.77 42.77L209.38 450H450v-240.62l-83.38 83.39L323.85 250 480 93.85 636.15 250l-42.77 42.77L510 209.38V450h240l-83.38 -82.77L710 323.85 866.15 480 710 636.15l-42.77 -42.77L750.62 510H510v240l82.77 -83.38L636.15 710 480 866.15Z" />
+</vector>

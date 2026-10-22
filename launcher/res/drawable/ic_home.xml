@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Material Symbols "home", outlined, weight 300 (google/material-design-icons, Apache 2.0). App icon and banner: white on black. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="96dp" android:height="96dp"
-    android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#000000" android:pathData="M0,0h24v24h-24z" />
-    <path android:fillColor="#FFFFFF" android:pathData="M12,5l7,6v8h-5v-5h-4v5H5v-8z" />
+    android:viewportWidth="960" android:viewportHeight="960">
+    <path android:fillColor="#000000" android:pathData="M0,0h960v960h-960z" />
+    <group android:scaleX="0.7" android:scaleY="0.7" android:pivotX="480" android:pivotY="480">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M240 760h133.85v-237.69h212.3V760H720v-360L480 219.23 240 400v360Zm-60 60v-450l300 -225.77L780 370v450H526.15v-237.69h-92.3V820H180Zm300 -330.38Z" />
+    </group>
 </vector>

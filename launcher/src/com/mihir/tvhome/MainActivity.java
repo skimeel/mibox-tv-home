@@ -444,6 +444,8 @@ public class MainActivity extends Activity {
         // Sits in the gap under the dock, so showing it doesn't shift the layout.
         moveHint = text(12, "sans-serif-medium", 0xE6FFFFFF);
         moveHint.setShadowLayer(dp(8), 0, dp(1), 0xCC000000);
+        moveHint.setGravity(Gravity.CENTER_VERTICAL);
+        moveHint.setCompoundDrawablePadding(dp(8));
         moveHint.setVisibility(View.GONE);
         root.addView(moveHint, lp(-2, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0, 0, 0, dp(7)));
 
@@ -764,7 +766,10 @@ public class MainActivity extends Activity {
             card.badge = text(9, "sans-serif-medium", 0xE6FFFFFF);
             card.badge.setText("Hidden");
             card.badge.setLetterSpacing(0.08f);
-            card.badge.setPadding(dp(7), dp(2), dp(7), dp(2));
+            card.badge.setPadding(dp(6), dp(2), dp(7), dp(2));
+            card.badge.setGravity(Gravity.CENTER_VERTICAL);
+            card.badge.setCompoundDrawablesRelative(icon(R.drawable.ic_hidden, 12), null, null, null);
+            card.badge.setCompoundDrawablePadding(dp(4));
             GradientDrawable badgeBg = new GradientDrawable();
             badgeBg.setCornerRadius(dp(8));
             badgeBg.setColor(0xCC000000);
@@ -998,6 +1003,7 @@ public class MainActivity extends Activity {
         movingPkg = pkg;
         movingInGrid = false;
         moveHint.setText("Use Left/Right to move, OK to save, Back to cancel");
+        moveHint.setCompoundDrawablesRelative(icon(R.drawable.ic_move_dock, 18), null, null, null);
         card.requestFocus();
         GradientDrawable ring = new GradientDrawable();
         ring.setCornerRadius(dp(10));
@@ -1092,6 +1098,7 @@ public class MainActivity extends Activity {
         moveRing.setBackground(ring);
         ((ViewGroup) card).addView(moveRing, new FrameLayout.LayoutParams(-1, -1));
         moveHint.setText("Use the arrows to move, OK to save, Back to cancel");
+        moveHint.setCompoundDrawablesRelative(icon(R.drawable.ic_move_grid, 18), null, null, null);
         moveHint.setVisibility(View.VISIBLE);
         updateNotice();
     }
@@ -1947,6 +1954,13 @@ public class MainActivity extends Activity {
         Intent i = getPackageManager().getLeanbackLaunchIntentForPackage(pkg);
         if (i == null) i = getPackageManager().getLaunchIntentForPackage(pkg);
         if (i != null) launch(i);
+    }
+
+    /** A vector icon sized in dp, for use beside text. */
+    private Drawable icon(int res, int sizeDp) {
+        Drawable d = getDrawable(res);
+        d.setBounds(0, 0, dp(sizeDp), dp(sizeDp));
+        return d;
     }
 
     private TextView text(float sp, String family, int color) {

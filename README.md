@@ -101,6 +101,10 @@ Undo everything with `tools/restore.sh <the same list>`.
 
 Change the dock: edit `config.xml`, then run `launcher/build-and-install.sh`.
 
+Icons are [Material Symbols](https://github.com/google/material-design-icons) (outlined, weight
+300, Apache License 2.0), converted to vector drawables in `launcher/res/drawable/`. The "!" badge for
+"no internet" is hand-drawn, since Material has no such icon.
+
 ## Gotchas we hit
 
 - **macOS blocks the `adb` binary** on the local network ("No route to host"). `tools/tv.py` uses

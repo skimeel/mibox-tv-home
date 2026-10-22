@@ -1,15 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Ethernet with working internet. 24-unit grid, stroke 2, round caps and joins; colours follow the button's focus. -->
+<!-- Material Symbols "lan", outlined, weight 300 (google/material-design-icons, Apache 2.0). Ethernet with working internet. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp"
-    android:viewportWidth="24" android:viewportHeight="24">
-    <path android:pathData="M5.2,4.5H18.8A2.2,2.2 0 0 1 21,6.7V13.8A2.2,2.2 0 0 1 18.8,16H5.2A2.2,2.2 0 0 1 3,13.8V6.7A2.2,2.2 0 0 1 5.2,4.5Z"
-        android:strokeColor="@color/qs_icon" android:strokeWidth="2"
-        android:strokeLineCap="round" android:strokeLineJoin="round" />
-    <path android:pathData="M7.5 8v3.2M10.5 8v3.2M13.5 8v3.2M16.5 8v3.2"
-        android:strokeColor="@color/qs_icon" android:strokeWidth="2"
-        android:strokeLineCap="round" android:strokeLineJoin="round" />
-    <path android:pathData="M12 16v3.5M8 19.5h8"
-        android:strokeColor="@color/qs_icon" android:strokeWidth="2"
-        android:strokeLineCap="round" android:strokeLineJoin="round" />
+    android:viewportWidth="960" android:viewportHeight="960">
+    <path android:fillColor="@color/qs_icon"
+        android:pathData="M130 870v-260h120v-160h200v-100H330v-260h300v260H510v100h200v160h120v260H530v-260h120v-100H310v100h120v260H130Zm260 -580h180v-140H390v140ZM190 810h180v-140H190v140Zm400 0h180v-140H590v140ZM480 290ZM370 670Zm220 0Z" />
 </vector>
