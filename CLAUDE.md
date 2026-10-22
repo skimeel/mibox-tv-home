@@ -18,8 +18,20 @@ Follow these for every UI change to the launcher. It is a TV seen from about 3 m
    remove or shorten it.
 6. **Cost:** no blur or RenderScript, no big shadows on many views, no full-screen overdraw. Keep
    total launcher memory under 40 MB.
+   **Sharp icons:** never scale a view that holds a vector icon; a scaled view stretches the
+   rendered bitmap and blurs it. Size changes on focus go through padding or bounds in whole
+   pixels. Do not resize one vector drawable back and forth either: resizing 48 -> 52 -> 48 px left
+   it soft even with a fresh copy, so the round buttons stack a 48 px and a 52 px icon that are
+   never resized and crossfade them. After a focus-and-leave the icon must be exactly as crisp as
+   on a fresh start, and tests must check both states.
 7. **Icons:** simple line icons, one stroke weight, drawn as vectors, with content descriptions.
-   Use Material Symbols, outlined, with the weight chosen in the icon audit, drawn as vector
-   drawables. Hand-draw only when Material has no matching icon.
+   Use Material Symbols, outlined, drawn as vector drawables. Hand-draw only when Material has no
+   matching icon. The Wi-Fi and Settings buttons use weight 400 in every state; all other icons
+   stay at weight 300. Reason: thin white weight-300 strokes on translucent glass looked soft, and
+   weight 400 plus a dark glass tint (#0B0E14 at 25%) fixed it.
 8. **Restraint:** fewer elements, more space. If it does not help in the first five seconds, leave
    it out.
+9. **Testing visuals:** check sharpness and contrast on the `tvtest_1080p` emulator (a true
+   1920x1080 panel at density 320, like the Mi Box), not the resized Pixel 3a: its `wm size`
+   override rescales every frame and blurs screenshots. Test on the real wallpapers, not only a
+   plain background.
