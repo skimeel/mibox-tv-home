@@ -528,7 +528,7 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * A 48dp round "soft glass" icon button: white at 14% with a 22% hairline when unfocused,
+     * A 48dp round "soft glass" icon button: smoked glass (#0B0E14 at 25%) with a 22% white hairline when unfocused,
      * solid #F4F6FA when focused. The icon's colours follow the focus state through its colour
      * state lists (res/color), so nothing is recoloured in code.
      *
@@ -547,7 +547,9 @@ public class MainActivity extends Activity {
 
         GradientDrawable glass = new GradientDrawable();
         glass.setShape(GradientDrawable.OVAL);
-        glass.setColor(0x24FFFFFF);
+        // A dark tint, not a white one: it keeps the white icon at 6.5:1 or better on every wallpaper
+        // (a white tint fell to 3.4:1 on bright ones) while three quarters of the picture shows through.
+        glass.setColor(0x400B0E14);
         glass.setStroke(dp(1), 0x38FFFFFF); // GradientDrawable strokes sit inside the bounds
         GradientDrawable solid = new GradientDrawable();
         solid.setShape(GradientDrawable.OVAL);
