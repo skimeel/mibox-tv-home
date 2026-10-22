@@ -12,7 +12,6 @@ import android.content.SharedPreferences;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
-import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -21,6 +20,7 @@ import android.graphics.Outline;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
@@ -86,7 +86,7 @@ import java.util.Set;
  * Apple TV style home dashboard over rotating nature photos: clock, date and weather top-left, the
  * Wi-Fi network name with today's schedule under it, a verse of the day lower-left (ESV from the ESV API, cached, with the bundled
  * WEB text as the fallback), a dock of pinned apps, and every other app
- * plus Settings in a grid that scrolls up on Down. Wi-Fi and Settings pills top-right, the dock and
+ * plus Settings in a grid that scrolls up on Down. Round Wi-Fi and Settings buttons top-right, the dock and
  * the grid take D-pad focus; the weather and verse are display only. Long-press OK on an app to
  * rearrange the dock. Plain framework views only (no AndroidX), no background work; the only network
  * use is the weather and the day's ESV verse, fetched while the launcher is in front.
@@ -153,7 +153,9 @@ public class MainActivity extends Activity {
     static final long DAY_MS = 24 * 60 * 60 * 1000;
     // 560dp keeps the verse card clear of the schedule card on the right at any height.
     static final int VERSE_CARD_DP = 560, VERSE_MAX_LINES = 4;
-    private TextView greeting, clock, ampm, date, weather, title, wifiPill, verseText, verseRef, appsLabel;
+    private TextView greeting, clock, ampm, date, weather, title, verseText, verseRef, appsLabel;
+    private ImageView wifiButton;
+    private int wifiIcon;
     private final List<String[]> verses = new ArrayList<>();
     private long verseDay = -1;
     // ESV: cached passages expire after this many days (Crossway asks for periodic cache clearing).
@@ -407,7 +409,8 @@ public class MainActivity extends Activity {
         GradientDrawable calBg = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0x8C000000, 0x66000000});
         calBg.setCornerRadius(dp(20));
         calCard.setBackground(calBg);
-        hero.addView(calCard, lp(dp(300), -2, Gravity.TOP | Gravity.END, 0, dp(84), dp(48), 0));
+        // 16dp below the round buttons (36dp top + 48dp buttons).
+        hero.addView(calCard, lp(dp(300), -2, Gravity.TOP | Gravity.END, 0, dp(100), dp(48), 0));
 
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(LinearLayout.VERTICAL);
@@ -507,43 +510,52 @@ public class MainActivity extends Activity {
         LinearLayout right = new LinearLayout(this);
         right.setGravity(Gravity.CENTER_VERTICAL);
         right.setClipChildren(false);
-        wifiPill = pill("Wi-Fi", null); // updateWifi sets the network name and state icon
-        wifiPill.setCompoundDrawablePadding(dp(7));
+        wifiButton = roundButton(R.drawable.ic_wifi_off, "Wi-Fi"); // updateWifi sets the state icon
         // Android 9 builds without a Wi-Fi screen get the main Settings screen instead.
-        wifiPill.setOnClickListener(v -> openSettings(Settings.ACTION_WIFI_SETTINGS));
-        TextView settings = pill("Settings", "⚙");
+        wifiButton.setOnClickListener(v -> openSettings(Settings.ACTION_WIFI_SETTINGS));
+        ImageView settings = roundButton(R.drawable.ic_settings, "Settings");
         settings.setOnClickListener(v -> openSettings(Settings.ACTION_SETTINGS));
-        for (TextView p : new TextView[]{wifiPill, settings}) {
-            right.addView(p, llp(-2, dp(30), dp(10), 0, 0, 0));
-            pills.add(p);
+        for (ImageView b : new ImageView[]{wifiButton, settings}) {
+            right.addView(b, llp(dp(48), dp(48), b == settings ? dp(12) : 0, 0, 0, 0));
+            pills.add(b);
         }
         header.addView(right, new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.TOP));
         return header;
     }
 
-    private TextView pill(String label, String glyph) {
-        TextView p = text(11, "sans-serif-medium", 0xE6FFFFFF);
-        p.setText(glyph == null ? label : glyph + "  " + label);
-        p.setGravity(Gravity.CENTER);
-        p.setPadding(dp(14), 0, dp(14), 0);
-        p.setFocusable(true);
-        p.setDefaultFocusHighlightEnabled(false); // the pill draws its own focus state
-        p.setId(View.generateViewId());
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(15));
-        bg.setColor(0x66000000);
-        bg.setStroke(dp(1), 0x33FFFFFF);
-        p.setBackground(bg);
-        p.setOnFocusChangeListener((v, has) -> {
-            bg.setColor(has ? 0xF2FFFFFF : 0x66000000);
-            TextView t = (TextView) v;
-            t.setTextColor(has ? 0xFF111111 : 0xE6FFFFFF);
-            t.setCompoundDrawableTintList(ColorStateList.valueOf(t.getCurrentTextColor())); // icon follows the text
-            v.animate().scaleX(has ? 1.08f : 1f).scaleY(has ? 1.08f : 1f)
-                    .setInterpolator(new OvershootInterpolator(2f)).setDuration(220).start();
+    /**
+     * A 48dp round "soft glass" icon button: white at 14% with a 22% hairline when unfocused,
+     * solid #F4F6FA when focused. The icon's colours follow the focus state through its colour
+     * state lists (res/color), so nothing is recoloured in code.
+     */
+    private ImageView roundButton(int icon, String description) {
+        ImageView b = new ImageView(this);
+        b.setId(View.generateViewId());
+        b.setFocusable(true);
+        b.setClickable(true);
+        b.setDefaultFocusHighlightEnabled(false); // the button draws its own focus state
+        b.setContentDescription(description);
+        b.setImageResource(icon);
+        b.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        b.setPadding(dp(12), dp(12), dp(12), dp(12)); // 24dp icon in a 48dp circle
+        GradientDrawable glass = new GradientDrawable();
+        glass.setShape(GradientDrawable.OVAL);
+        glass.setColor(0x24FFFFFF);
+        glass.setStroke(dp(1), 0x38FFFFFF); // GradientDrawable strokes sit inside the bounds
+        GradientDrawable solid = new GradientDrawable();
+        solid.setShape(GradientDrawable.OVAL);
+        solid.setColor(0xFFF4F6FA);
+        StateListDrawable bg = new StateListDrawable();
+        bg.addState(new int[]{android.R.attr.state_focused}, solid);
+        bg.addState(new int[0], glass);
+        b.setBackground(bg); // its oval outline also shapes the elevation shadow
+        b.setOnFocusChangeListener((v, has) -> {
+            // One soft elevation shadow, only on the focused button.
+            v.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f).translationZ(has ? dp(6) : 0)
+                    .setInterpolator(new DecelerateInterpolator()).setDuration(150).start();
             if (has) { lastFocusedId = v.getId(); scroll.smoothScrollTo(0, 0); fadeGlow(1f); }
         });
-        return p;
+        return b;
     }
 
     private View buildVerseCard() {
@@ -1227,7 +1239,7 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * Network name and state icon on the Wi-Fi pill: working, no internet (not validated),
+     * State icon and spoken description of the Wi-Fi button: working, no internet (not validated),
      * connecting, or not connected / Wi-Fi off. Ethernet gets its own icon when it is in use.
      */
     private void updateWifi() {
@@ -1240,32 +1252,24 @@ public class MainActivity extends Activity {
         boolean working = c != null && c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 && c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
         int icon;
-        String name;
-        boolean dim = false;
+        String state;
         if (c != null && c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
             icon = working ? R.drawable.ic_ethernet : R.drawable.ic_ethernet_alert;
-            name = "Ethernet";
+            state = working ? "Ethernet" : "Ethernet, no internet";
         } else if (c != null) {
             icon = working ? R.drawable.ic_wifi : R.drawable.ic_wifi_alert;
-            name = "Wi-Fi";
-            String s = info == null ? null : info.getSSID();
-            // The name needs the location permission granted at install; otherwise it reads <unknown ssid>.
-            if (s != null && !s.contains("unknown ssid")) name = s.replace("\"", "");
+            state = working ? "connected" : "connected, no internet";
         } else if (wm != null && wm.isWifiEnabled() && info != null && isConnecting(info.getSupplicantState())) {
-            icon = R.drawable.ic_wifi;
-            dim = true;
-            name = "Connecting…";
+            icon = R.drawable.ic_wifi_connecting;
+            state = "connecting";
         } else {
             icon = R.drawable.ic_wifi_off;
-            name = wm != null && !wm.isWifiEnabled() ? "Wi-Fi off" : "Offline";
+            state = wm != null && !wm.isWifiEnabled() ? "off" : "not connected";
         }
-        Drawable d = getDrawable(icon).mutate();
-        d.setAlpha(dim ? 100 : 255);
-        d.setBounds(0, 0, dp(16), dp(16));
-        wifiPill.setCompoundDrawablesRelative(d, null, null, null);
-        wifiPill.setCompoundDrawableTintList(ColorStateList.valueOf(wifiPill.getCurrentTextColor()));
-        wifiPill.setText(name);
+        if (icon != wifiIcon) { wifiIcon = icon; wifiButton.setImageResource(icon); }
+        wifiButton.setContentDescription("Wi-Fi, " + state);
     }
+
 
     /** Joining a Wi-Fi network but not yet the default network (associating up to getting an address). */
     private static boolean isConnecting(SupplicantState s) {
@@ -1998,7 +2002,7 @@ public class MainActivity extends Activity {
         }
         // Menu key on the remote opens the Inputs dropdown (it falls back to Settings).
         if (e.getKeyCode() == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP && popup == null) {
-            showInputs(wifiPill);
+            showInputs(wifiButton);
             return true;
         }
         return super.dispatchKeyEvent(e);

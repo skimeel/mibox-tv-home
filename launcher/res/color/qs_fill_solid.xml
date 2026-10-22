@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The button's fill as a solid colour, for the badge and the gap cut around the slash. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="#F4F6FA" />
+    <item android:color="#26292F" />
+</selector>

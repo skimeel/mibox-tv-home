@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icon colour on the round header buttons: white on glass, dark when focused. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true" android:color="#0B0E14" />
+    <item android:color="#FFFFFF" />
+</selector>

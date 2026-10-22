@@ -1,14 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Not connected to any network, or Wi-Fi off: the arcs with a slash, cut clear of it. -->
+<!-- Not connected or Wi-Fi off: faded arcs, slashed, with a gap cut around the slash. 24-unit grid, stroke 2, round caps and joins; colours follow the button's focus. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp"
     android:viewportWidth="24" android:viewportHeight="24">
-    <group>
-        <!-- Keep everything except a band either side of the slash. -->
-        <clip-path android:pathData="M2.2,0 L24,0 L24,21.8 Z M0,2.2 L0,24 L21.8,24 Z" />
-        <path android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round"
-            android:pathData="M8.46,15.46 A5,5 0 0,1 15.54,15.46 M5.28,12.28 A9.5,9.5 0 0,1 18.72,12.28 M2.1,9.1 A14,14 0 0,1 21.9,9.1" />
-        <path android:fillColor="#FFFFFF" android:pathData="M10.4,19 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0z" />
-    </group>
-    <path android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:pathData="M2.5,2.5 L21.5,21.5" />
+    <path android:pathData="M2.5 9.2A13.8 13.8 0 0 1 21.5 9.2"
+        android:strokeColor="@color/qs_icon" android:strokeWidth="2"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:strokeAlpha="0.55" />
+    <path android:pathData="M5.6 12.7A9.1 9.1 0 0 1 18.4 12.7"
+        android:strokeColor="@color/qs_icon" android:strokeWidth="2"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:strokeAlpha="0.55" />
+    <path android:pathData="M8.7 16.1A4.5 4.5 0 0 1 15.3 16.1"
+        android:strokeColor="@color/qs_icon" android:strokeWidth="2"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:strokeAlpha="0.55" />
+    <path android:pathData="M10.5,19.4 a1.5,1.5 0 1,0 3,0 a1.5,1.5 0 1,0 -3,0" android:fillColor="@color/qs_icon" android:fillAlpha="0.55" />
+    <path android:pathData="M4 4L20 20"
+        android:strokeColor="@color/qs_fill_solid" android:strokeWidth="5"
+        android:strokeLineCap="round" android:strokeLineJoin="round" />
+    <path android:pathData="M4 4L20 20"
+        android:strokeColor="@color/qs_icon" android:strokeWidth="2"
+        android:strokeLineCap="round" android:strokeLineJoin="round" />
 </vector>
