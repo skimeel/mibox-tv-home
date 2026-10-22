@@ -19,7 +19,7 @@
          "app=iconApp|Label" to also change the label. Nothing is bundled: if iconApp isn't
          installed, the app keeps its own icon. -->
     <string-array name="icon_aliases">
-        <item>org.smarttube.stable=com.google.android.youtube.tv</item>
+        <item>org.smarttube.stable=com.google.android.youtube.tv|SmartTube</item>
     </string-array>
 
     <!-- Never shown as tiles in the All Apps grid. Add package names here to hide them. -->

@@ -102,6 +102,13 @@ public class MainActivity extends Activity {
     // tile are not in it; apps it doesn't list go at the end, alphabetically.
     private List<String> gridOrder;
     private List<App> gridApps = new ArrayList<>();
+    // Grid apps hidden from the remote (saved), on top of hidden_apps in config.xml. Reveal mode shows
+    // them dimmed in their places until it's turned off or the launcher restarts.
+    private final Set<String> userHidden = new java.util.LinkedHashSet<>();
+    private boolean revealHidden;
+    // Every grid app including hidden ones, in grid order (Settings excluded), so saving a move
+    // keeps the hidden apps' places.
+    private List<String> gridAllPkgs = new ArrayList<>();
     // icon_aliases from config.xml: app package -> {package whose banner/icon to show, label or null}.
     private final Map<String, String[]> iconAliases = new HashMap<>();
     private final Set<String> hidden = new HashSet<>();
@@ -113,7 +120,7 @@ public class MainActivity extends Activity {
         String pkg, label;
         Intent intent;
         Drawable art;
-        boolean isBanner, isSettings;
+        boolean isBanner, isSettings, hiddenByUser;
         int color;
     }
 
@@ -219,6 +226,7 @@ public class MainActivity extends Activity {
         if (DOCK_MAX > prefs.getInt("dock_cap", DOCK_MAX)) dockOrder.addAll(dockOverflow);
         String grid = prefs.getString("grid_order", null);
         if (grid != null) gridOrder = new ArrayList<>(Arrays.asList(TextUtils.split(grid, ",")));
+        userHidden.addAll(Arrays.asList(TextUtils.split(prefs.getString("user_hidden", ""), ",")));
         for (String entry : getResources().getStringArray(R.array.icon_aliases)) {
             // "app=iconApp" or "app=iconApp|Label"
             int eq = entry.indexOf('=');
@@ -589,9 +597,18 @@ public class MainActivity extends Activity {
             byPkg.put(s.pkg, s);
         }
 
+        // A hidden app that's gone (uninstalled, or now in hidden_apps) is dropped, so a reinstall shows.
+        if (userHidden.retainAll(byPkg.keySet())) saveHidden();
+        if (userHidden.isEmpty()) revealHidden = false;
+
         List<App> dock = new ArrayList<>();
         // Saved apps that are no longer installed are skipped.
         for (String p : dockOrder) if (dock.size() < DOCK_MAX && byPkg.containsKey(p)) dock.add(byPkg.remove(p));
+        // Dock apps are never hidden.
+        boolean unhid = false;
+        for (App d : dock) unhid |= userHidden.remove(d.pkg);
+        if (unhid) saveHidden();
+        if (userHidden.isEmpty()) revealHidden = false;
         List<App> rest = new ArrayList<>(byPkg.values());
         App settingsTile = null;
         for (App a : rest) if (a.isSettings) settingsTile = a;
@@ -601,6 +618,13 @@ public class MainActivity extends Activity {
             int rx = gridRank(x.pkg), ry = gridRank(y.pkg);
             return rx != ry ? Integer.compare(rx, ry) : x.label.compareToIgnoreCase(y.label);
         });
+        gridAllPkgs = new ArrayList<>();
+        for (App a : rest) gridAllPkgs.add(a.pkg);
+        for (Iterator<App> it = rest.iterator(); it.hasNext(); ) {
+            App a = it.next();
+            a.hiddenByUser = userHidden.contains(a.pkg);
+            if (a.hiddenByUser && !revealHidden) it.remove();
+        }
         if (settingsTile != null) rest.add(settingsTile); // always last
         gridApps = rest;
 
@@ -723,6 +747,18 @@ public class MainActivity extends Activity {
         card.setBackground(card.bg);
         card.img = new ImageView(this);
         card.addView(card.img, new FrameLayout.LayoutParams(-1, -1));
+        if (!inDock) {
+            // Shown on hidden apps in reveal mode.
+            card.badge = text(9, "sans-serif-medium", 0xE6FFFFFF);
+            card.badge.setText("Hidden");
+            card.badge.setLetterSpacing(0.08f);
+            card.badge.setPadding(dp(7), dp(2), dp(7), dp(2));
+            GradientDrawable badgeBg = new GradientDrawable();
+            badgeBg.setCornerRadius(dp(8));
+            badgeBg.setColor(0xCC000000);
+            card.badge.setBackground(badgeBg);
+            card.addView(card.badge, lp(-2, -2, Gravity.TOP | Gravity.START, dp(6), dp(6), 0, 0));
+        }
 
         // Focus ring and sheen, drawn above the art.
         GradientDrawable ring = new GradientDrawable();
@@ -786,6 +822,8 @@ public class MainActivity extends Activity {
         if (app.isBanner) card.img.setPadding(0, 0, 0, 0);
         else card.img.setPadding(dp(22), dp(14), dp(22), dp(14));
         if (card.label != null) card.label.setText(app.label);
+        card.img.setAlpha(app.hiddenByUser ? 0.4f : 1f); // only seen in reveal mode
+        if (card.badge != null) card.badge.setVisibility(app.hiddenByUser ? View.VISIBLE : View.GONE);
     }
 
     /**
@@ -923,10 +961,20 @@ public class MainActivity extends Activity {
                 rows.add(inputRow("Add to dock", () -> {
                     shown.add(app.pkg);
                     if (gridOrder != null && gridOrder.remove(app.pkg)) saveGridOrder(); // dock apps aren't in the grid order
+                    if (userHidden.remove(app.pkg)) saveHidden(); // dock apps can't be hidden
                     saveDock(shown, app.pkg, null);
                 }));
             } else {
                 rows.add(inputRow("Dock is full (" + DOCK_MAX + " apps)", () -> { }));
+            }
+            if (app.isSettings) {
+                // The Settings tile can't be hidden; it switches reveal mode instead.
+                if (revealHidden) rows.add(inputRow("Hide hidden apps", () -> setReveal(false)));
+                else if (!userHidden.isEmpty()) rows.add(inputRow("Show hidden apps (" + userHidden.size() + ")", () -> setReveal(true)));
+            } else if (app.hiddenByUser) {
+                rows.add(inputRow("Unhide", () -> setHidden(app.pkg, false)));
+            } else {
+                rows.add(inputRow("Hide", () -> setHidden(app.pkg, true)));
             }
         }
         // The dock sits near the bottom of the screen, so its menu opens above the tile.
@@ -1059,8 +1107,14 @@ public class MainActivity extends Activity {
         String pkg = movingPkg;
         endMoveMode();
         if (save) {
+            // The new order of the apps on screen, with any hidden ones left in their places.
+            List<String> onScreen = new ArrayList<>();
+            for (App a : gridApps) if (!a.isSettings) onScreen.add(a.pkg);
             gridOrder = new ArrayList<>();
-            for (App a : gridApps) if (!a.isSettings) gridOrder.add(a.pkg);
+            int next = 0;
+            for (String p : gridAllPkgs) gridOrder.add(onScreen.contains(p) ? onScreen.get(next++) : p);
+            while (next < onScreen.size()) gridOrder.add(onScreen.get(next++));
+            gridAllPkgs = new ArrayList<>(gridOrder);
             saveGridOrder();
         } else {
             gridApps = gridBefore;
@@ -1068,6 +1122,29 @@ public class MainActivity extends Activity {
         }
         View c = findCard(pkg);
         if (c != null) c.requestFocus();
+    }
+
+    /** Hide or unhide a grid app, keep focus near where it was, and end reveal mode once none are hidden. */
+    private void setHidden(String pkg, boolean hide) {
+        int index = Math.max(0, gridCards.indexOf(findCard(pkg)));
+        if (hide) userHidden.add(pkg); else userHidden.remove(pkg);
+        if (userHidden.isEmpty()) revealHidden = false;
+        saveHidden();
+        buildApps();
+        View c = findCard(pkg);
+        if (c == null && !gridCards.isEmpty()) c = gridCards.get(Math.min(index, gridCards.size() - 1));
+        if (c != null) c.requestFocus();
+    }
+
+    /** Reveal mode on or off; focus stays on the Settings tile that switched it. */
+    private void setReveal(boolean on) {
+        revealHidden = on;
+        buildApps();
+        for (App a : gridApps) if (a.isSettings) { View c = findCard(a.pkg); if (c != null) c.requestFocus(); }
+    }
+
+    private void saveHidden() {
+        getPreferences(MODE_PRIVATE).edit().putString("user_hidden", TextUtils.join(",", userHidden)).apply();
     }
 
     private void saveGridOrder() {
@@ -1931,7 +2008,7 @@ public class MainActivity extends Activity {
     static final class AspectFrame extends FrameLayout {
         ImageView img;
         GradientDrawable bg;
-        TextView label; // grid tiles only
+        TextView label, badge; // grid tiles only
         AspectFrame(Context c) { super(c); }
         @Override protected void onMeasure(int w, int h) {
             int width = MeasureSpec.getSize(w);
