@@ -716,6 +716,11 @@ public class MainActivity extends Activity {
         wireFocus();
 
         if (!dock.isEmpty()) { title.setText(dock.get(0).label); setGlow(dock.get(0).color); }
+        // Android's own pick when the window first takes focus with nothing focused. requestFocus()
+        // from onCreate/onResume can be refused because the window isn't shown yet (it still reads
+        // as touch mode), and Android then chose the first focusable view, the Wi-Fi button.
+        View home = homeFocus();
+        if (home != null) home.setFocusedByDefault(true); // the old tiles were replaced above
         // Keep focus on the same app (or pill) across a rebuild, else the first dock app.
         View target = keepPill ? had : findCard(keepPkg);
         if (target == null) target = homeFocus();
