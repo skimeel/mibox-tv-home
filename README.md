@@ -61,8 +61,10 @@ Undo everything with `tools/restore.sh <the same list>`.
 
 - Clock, greeting, date and the weather (Open-Meteo, refreshed at most every 30 minutes while the
   home screen is in front; a failed fetch retries after 5 minutes, up to three times) top-left. Pills top-right for **Wi-Fi** (network name and a live icon for
-  working, no internet, connecting or offline, or an Ethernet icon when wired; opens Wi-Fi
-  settings) and **Settings**; Up from the dock reaches them. The remote's Menu key opens an
+  working, no internet, connecting or offline, or an Ethernet icon when wired) and **Settings**;
+  Up from the dock reaches them. OK on either dims the home screen and slides in a quick-settings
+  panel (Wi-Fi with its live state, Bluetooth, Display, Sound, All settings) whose rows open the
+  matching system screen; Back closes it. The remote's Menu key opens an
   **Inputs** dropdown (HDMI/AV/Live TV, or Settings when there are none).
 - Today's schedule top-right from up to three Google Calendar private iCal links in
   `launcher/calendar.env` (git-ignored) as `ICAL_URL_1=` to `ICAL_URL_3=`; the build compiles them
