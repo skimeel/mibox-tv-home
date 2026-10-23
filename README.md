@@ -1,155 +1,123 @@
-# tv-home
+# tv-home for the Mi Box S
 
-**Make a slow, ad-filled Android TV fast and clean again.** Debloat it over Wi-Fi and give it a
-tiny Apple TV-style home screen with rotating nature wallpapers. You can hand the whole thing to
-Claude Code with one prompt, or do it by hand with the scripts here.
+A small, fast home screen for Android TV, set up for a Xiaomi Mi Box S (2 GB, Android 9). It
+replaces the stock launcher with a clock, the weather, today's schedule, a verse of the day and a
+dock of your apps over slowly changing nature photos. No ads, no recommendations, no background
+services.
 
-On a 2 GB TCL Google TV this disabled 25 bloat apps and cut the home screen's memory use from
-192 MB to 83 MB. Everything is reversible: packages are disabled, never uninstalled.
+Screenshots will go in [docs/screenshots/](docs/screenshots/).
 
-## Do it with Claude Code (easiest)
+## Built from
 
-1. On the TV: Settings → System → About → press OK on **Build** 7 times → back → Developer options
-   → turn on **USB debugging**. Keep the TV on, on the same Wi-Fi as your computer.
-2. Clone this repo, open Claude Code inside it (so it can reuse the launcher and scripts), and paste:
+This started as [tv-home](https://github.com/mihirgupta0900/tv-home) by Mihir Gupta (MIT licence),
+which debloats an Android TV over Wi-Fi and installs a minimal Apple TV-style launcher. This fork
+builds the launcher for API 28 and adds the schedule, verse, weather icon, dock editing and the
+design work described below. It was built with [Claude Code](https://claude.com/claude-code).
+Upstream was in turn inspired by [Gathin23/tv-vibehack](https://github.com/Gathin23/tv-vibehack).
 
-   ```text
-   My Android TV is slow and full of ads. Find it on my Wi-Fi, connect over ADB, and debloat it:
-   disable the manufacturer's ads, telemetry and junk (reversibly, never uninstall), asking me first
-   about apps and features I might use. Then build and install a fast, minimal Apple TV-style home
-   screen with a dock of my favourite apps and rotating nature wallpapers. Back up before changing
-   anything, check every step with screenshots from the TV, and give me a restore script.
+## Features
 
-   Heads-up from people who've done this: use the adb-shell Python package if macOS blocks adb; on
-   Google TV also disable com.google.android.tungsten.setupwraith or it hijacks the Home button; and
-   test the Home button from inside an app.
-   ```
+- **Home screen:** clock, greeting and date top-left; Wi-Fi and Settings buttons top-right (the
+  Wi-Fi icon shows working, no internet, connecting, off or Ethernet); the remote's Menu key opens
+  an Inputs list. 12 nature photos crossfade every 10 minutes.
+- **Dock:** up to 6 favourite apps; the focused app's name shows above it. Press Down for every other
+  app, plus Settings, in a grid.
+- **Move and hide:** long-press OK on an app to move it, add it to or remove it from the dock, or
+  hide it. Hidden apps can be shown again from the Settings tile's menu. Orders are saved on the box.
+- **Verse of the day:** the day's reference from YouVersion's verse of the day, shown in the ESV. A
+  range too long for the card shows its first verse. Without the keys, or on any failure, it uses a
+  bundled list of 30 verses in the public-domain Berean Standard Bible (BSB). Crossway's copyright
+  notice and www.esv.org show along the bottom edge while ESV text is on screen.
+- **Weather:** the current temperature and an icon and words for the day's forecast (clear, partly
+  cloudy, cloudy, fog, rain, storms, snow, or windy from the day's gusts), from Open-Meteo.
+- **Schedule:** today's remaining events (or tomorrow's first ones) from up to three Google Calendar
+  private iCal links, cached for offline use and marked as stale after 3 hours.
 
-3. Accept "Allow USB debugging?" on the TV when asked, then answer a few questions: which apps you
-   use, which go in the dock, whether you want wallpapers.
+Everything on screen except the dock, grid and the two buttons is display only. Network requests
+happen only while the home screen is in front, and each source retries failures on a slow schedule.
 
-The prompt is short on purpose; Claude works out the details. The gotchas below are there in case it gets stuck.
+## Design rules
 
-## Do it by hand (macOS)
+The launcher follows the rules in [CLAUDE.md](CLAUDE.md), written for a TV seen from about 3 metres
+on a weak 2 GB box. In short: a 48 dp safe margin and an 8 dp grid; at least 4.5:1 text contrast;
+one accent colour; an unmistakable but calm focus state; short, purposeful motion; no blur or heavy
+shadows; Material Symbols line icons; and fewer elements rather than more. It also records the
+rules found by testing, such as how to keep vector icons sharp and to check visuals on a true
+1920×1080 emulator with the real wallpapers.
 
-```bash
-./setup.sh                                                  # Python ADB client, JDK 17, Android SDK
-tools/find-tv.sh                                            # finds the TV, saves its IP
-tools/venv/bin/python -I tools/tv.py --probe                # model, Android version
-tools/disable.sh examples/tcl-google-tv-g07/debloat.txt     # or your own list, see examples/
-launcher/build-and-install.sh                               # build + install the launcher
-```
+## What I measured
 
-Undo everything with `tools/restore.sh <the same list>`.
+- **Memory:** the launcher uses about 25 MB on the 2 GB Mi Box S.
+- **Text contrast:** the text on the home screen (greeting, clock, date, weather, schedule, verse
+  and dock title) was measured on screenshots of all 12 wallpapers at 1920×1080, with the
+  background taken from the middle of the luminance range behind each label. All of it passes
+  4.5:1 on every wallpaper (3:1 for the large clock and dock title). The lowest are the date (4.58:1), the calendar labels
+  (4.73:1) and the stale-calendar note (5.24:1). The weather icon is at least 6.75:1.
+- **Sharp icons:** the round Wi-Fi and Settings buttons used to leave their icon slightly blurred
+  after being focused, because the icon was resized. Each button now stacks a 48 px and a 52 px copy
+  of the icon that are never resized or scaled, and crossfades between them, so the icon is as crisp
+  after a focus-and-leave as on a fresh start.
+
+These were checked on the `tvtest_1080p` Android emulator (a native 1920×1080 panel at density 320,
+like the Mi Box) using fixture data. The live ESV, YouVersion, Open-Meteo and calendar requests have
+not all been exercised on the emulator, and how it looks from the couch can only be judged on a TV.
+
+## Build it with your own keys
+
+Requires macOS. `./setup.sh` installs JDK 17, the Android SDK pieces and a Python ADB client. Then:
+
+1. Put your keys in these files under `launcher/`. All three are git-ignored, and the build compiles
+   them in without printing them. Never commit or share them.
+
+   | File | Line | What it's for |
+   |---|---|---|
+   | `esv.env` | `ESV_API_KEY=<key>` | ESV text, from [api.esv.org](https://api.esv.org/) (non-commercial use only) |
+   | `esv.env` (optional) | `SHOW_ESV_NOTICE=false` | Hides Crossway's notice on your build. The ESV API terms require the notice with the text, so hiding it is your own responsibility. |
+   | `youversion.env` | `YOUVERSION_APP_KEY=<key>` | The daily reference, from an app you create at [platform.youversion.com](https://platform.youversion.com/), for a personal, non-commercial launcher |
+   | `calendar.env` | `ICAL_URL_1=<link>` to `ICAL_URL_3=` | Google Calendar's "secret address in iCal format" links |
+
+   Any of them can be left out: without the ESV key the verse is the bundled BSB, without the
+   YouVersion key the reference comes from the bundled list, and without calendar links the card
+   says "Calendar not set up".
+2. Set your dock, weather location and time zones in
+   [launcher/res/values/config.xml](launcher/res/values/config.xml).
+3. Build: `launcher/build-and-install.sh --build`. It prints whether each key was found (never the
+   key) and whether the ESV notice is shown. Without `--build` it also installs on the TV found by
+   `tools/find-tv.sh` and sets it as the home app.
+
+`scripts/yv-check.sh` checks your YouVersion key by hand: it prints today's verse of the day and
+its BSB text, without printing the key.
+
+## Debloating (from upstream)
+
+Upstream's scripts can disable a TV's ads, telemetry and preinstalled apps over Wi-Fi, reversibly
+(`tools/disable.sh <list>`, undone by `tools/restore.sh <list>`), with example lists in
+[examples/](examples/). Upstream reports cutting a 2 GB TCL Google TV's home screen memory from
+192 MB to 83 MB. I haven't used them on the Mi Box; this fork only replaces the home screen. See
+upstream's README and [PROMPT.md](PROMPT.md) for that workflow and the gotchas it hit, such as macOS
+blocking the `adb` binary (hence the pure-Python `tools/tv.py`) and Google TV's setup app taking
+over the Home button.
 
 ## What's here
 
 | Path | What it is |
 |---|---|
-| [PROMPT.md](PROMPT.md) | The prompt for Claude Code / any coding agent |
-| [launcher/](launcher/) | The home screen, including the wallpapers; plain Android, no background services. Its only network use is the weather |
-| [launcher/res/values/config.xml](launcher/res/values/config.xml) | Dock apps, hidden apps, Live TV app, grid columns, weather location, verse list |
-| [tools/tv.py](tools/tv.py) | Pure-Python ADB client: shell, batch, screenshots, chunked APK push |
-| [tools/find-tv.sh](tools/find-tv.sh) | Finds Android TVs on your Wi-Fi |
-| [tools/type.sh](tools/type.sh) | Type into the TV's on-screen keyboard from your laptop (`tools/type.sh` alone prompts hidden, for passwords) |
-| [tools/disable.sh](tools/disable.sh), [tools/restore.sh](tools/restore.sh) | Apply / undo a debloat list |
-| [examples/](examples/) | Debloat lists per TV model |
+| [launcher/](launcher/) | The home screen: plain Android, built with the SDK tools, no Gradle |
+| [launcher/res/values/config.xml](launcher/res/values/config.xml) | Dock, hidden apps, grid, weather location, verse and calendar settings |
+| [CLAUDE.md](CLAUDE.md) | The design rules |
+| [scripts/yv-check.sh](scripts/yv-check.sh) | By-hand check of the YouVersion key |
+| [tools/](tools/) | Upstream's ADB tools: find the TV, shell, screenshots, debloat and restore |
+| [examples/](examples/) | Upstream's debloat lists per TV model |
 
-## The launcher
+## Licence and credits
 
-- Clock, greeting, date and the weather (Open-Meteo, refreshed at most every 30 minutes while the
-  home screen is in front; a failed fetch retries after 5 minutes, up to three times) top-left.
-  The weather line shows the current temperature plus an icon and words for the day's forecast
-  (rain, storms, snow, fog, cloud, clear, or windy from the gust level in `config.xml`).
-  Weather data by [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Pills top-right for **Wi-Fi** (network name and a live icon for
-  working, no internet, connecting or offline, or an Ethernet icon when wired; opens Wi-Fi
-  settings) and **Settings**; Up from the dock reaches them. The remote's Menu key opens an
-  **Inputs** dropdown (HDMI/AV/Live TV, or Settings when there are none).
-- Today's schedule top-right from up to three Google Calendar private iCal links in
-  `launcher/calendar.env` (git-ignored) as `ICAL_URL_1=` to `ICAL_URL_3=`; the build compiles them
-  in and prints only how many it found. Up to four events still to come today (all-day ones on one
-  line at the top), or tomorrow's first three when nothing is left, in Melbourne time. Fetched
-  only while the home screen is in front, at most every 30 minutes (5 after a failure, three
-  times), cached for offline use and marked stale after 3 hours. Recurring events, exceptions,
-  moved or cancelled occurrences, time zones and daylight saving are handled by a small parser
-  (`launcher/src/.../IcsParser.java`, tested against made-up events in `launcher/test/`). Set
-  `show_event_titles` to `false` in `config.xml` to show only times and "Busy".
-- A verse of the day lower-left, one of 30 references chosen by date, in the ESV from the
-  [ESV API](https://api.esv.org/), labelled ESV. The ESV API terms require Crossway's copyright
-  notice and a link to www.esv.org with the text, so by default both show as one dim line along the
-  bottom edge while ESV text is on screen (`show_esv_notice` in `config.xml`). You can hide it on
-  your own build with a `SHOW_ESV_NOTICE=false` line in `launcher/esv.env`; the build then prints
-  "ESV notice: hidden (local override)". Hiding it is your own responsibility under Crossway's terms.
-  Put your key in `launcher/esv.env` (git-ignored) as `ESV_API_KEY=<key>` and rebuild; the
-  build compiles it in and never prints it. The app asks for the day's passage only while the home
-  screen is in front, retries a failure after an hour (at most three requests a day), and caches it. Without a key, offline, or on any error it shows the bundled public-domain
-  Berean Standard Bible text, labelled BSB. Verses that would need more than four lines are skipped,
-  never shortened.
-- Daily verse references from YouVersion Platform. With a key in `launcher/youversion.env`
-  (git-ignored) as `YOUVERSION_APP_KEY=<key>` (never commit or share it) and the ESV key, the day's
-  reference is YouVersion's verse of the day, shown in the ESV. A range too long for the card shows
-  its first verse. The year's list is fetched while the home screen is in front, kept for 30 days,
-  and refetched in a new year. Without the key, on any failure, or with `use_youversion_votd` set
-  to `false` in `config.xml`, the bundled 30-verse list is used as before. `scripts/yv-check.sh`
-  tries the same API by hand.
-- A dock of your favourite apps. The focused app's name appears above it over a glow coloured from
-  its banner. Press Down for every other launchable app, plus Settings, in a grid. The clock,
-  weather and verse are display only.
-- Long-press OK on a dock app for **Move** or **Remove from dock**, or on a grid app for **Add to
-  dock** (up to 6), or on a grid app for **Move** or **Add to dock**. Move works like stock Android
-  TV: Left/Right (and Up/Down in the grid) slide the app, OK saves, Back cancels. Both orders are
-  saved on the TV; `config.xml` is only the first-run default. New apps join the end of the grid,
-  and the Settings tile stays last.
-- Long-press a grid app for **Hide**. The Settings tile's menu then offers **Show hidden apps (N)**,
-  which shows them dimmed in their places with **Unhide** in their menu, until **Hide hidden
-  apps** or a restart. Apps in `hidden_apps` in `config.xml` stay hidden and aren't listed.
-- `icon_aliases` in `config.xml` shows another installed app's own banner on a tile, such as
-  YouTube's on SmartTube (`org.smarttube.stable=com.google.android.youtube.tv|SmartTube`; the
-  `|Label` part is optional). Nothing is bundled; if that app isn't installed the tile keeps its own icon.
-- 12 nature photos crossfade every 10 minutes, with a scrim so text stays readable. Swap them in
-  `launcher/assets/wallpapers/` (1920×1080 JPEGs, credits in `launcher/WALLPAPER-CREDITS.md`).
-- Deterministic D-pad focus, remembers the last tile, picks up newly installed apps on return.
-
-Change the dock: edit `config.xml`, then run `launcher/build-and-install.sh`.
-
-Icons are [Material Symbols](https://github.com/google/material-design-icons) (outlined, Apache
-License 2.0), converted to vector drawables in `launcher/res/drawable/`: weight 400 for every icon on
-the Wi-Fi and Settings buttons, in every network state (white on glass needs the heavier stroke),
-and weight 300 for the rest. The "!" badge for
-"no internet" is hand-drawn, since Material has no such icon.
-
-The fallback verses are the Berean Standard Bible (BSB), public domain
-([berean.bible/licensing.htm](https://berean.bible/licensing.htm)), copied verbatim from
-bereanbible.com/bsb.txt, downloaded 23 October 2026.
-
-Licences and credits for the icons, verses, weather data, YouVersion and the ESV are in
-[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-
-## Gotchas we hit
-
-- **macOS blocks the `adb` binary** on the local network ("No route to host"). `tools/tv.py` uses
-  the `adb-shell` Python package instead.
-- **Google TV hijacks the Home button.** With the stock launcher disabled, the setup app
-  (`com.google.android.tungsten.setupwraith`) has a higher HOME priority than any third-party
-  launcher. The install script disables it; `restore.sh` re-enables it.
-- **Home opened the launcher behind the current app**, because of a stale home task from switching
-  launchers. Force-stopping the launcher and `com.android.tv.settings` and pressing Home fixes it.
-  The install script does this.
-- **Chained `pm` commands** (`pm disable a; pm disable b`) can silently stop after the first. The
-  scripts run one per shell call.
-- **Apps installed from the Play Store didn't appear**, because the package broadcast was missed
-  while another app was in front. The launcher re-checks with `getChangedPackages` on every return.
-- **Unsplash blocks scripted downloads** with a bot check. The wallpapers come from Wikimedia
-  Commons Featured Pictures instead.
-
-## Supported TVs
-
-Android TV and Google TV: TCL, Xiaomi/Redmi, Hisense, Sony, OnePlus, Realme, Nvidia Shield,
-Chromecast with Google TV and most others. Not Samsung (Tizen), LG (webOS) or Fire TV.
-Tested on: TCL Google TV (Android 11). Add yours to `examples/`.
-
-## Credits
-
-Inspired by [Gathin23/tv-vibehack](https://github.com/Gathin23/tv-vibehack). Wallpaper photos are
-from Wikimedia Commons under their own licences, see
-[launcher/WALLPAPER-CREDITS.md](launcher/WALLPAPER-CREDITS.md). Code is MIT, see [LICENSE](LICENSE).
+- The code is MIT, see [LICENSE](LICENSE): copyright Mihir Gupta for upstream's work, which this
+  fork keeps under the same licence.
+- The wallpaper photos are from Wikimedia Commons under CC BY-SA licences, resized and in most cases
+  cropped to 1920×1080; authors and licences are in
+  [launcher/WALLPAPER-CREDITS.md](launcher/WALLPAPER-CREDITS.md).
+- Icons are Material Symbols (Apache License 2.0). Weather data by
+  [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Daily verse references from YouVersion
+  Platform. Fallback verses: Berean Standard Bible, public domain. ESV text © Crossway, fetched with
+  your own key and never stored in this repository. Details and the full Apache 2.0 text are in
+  [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
