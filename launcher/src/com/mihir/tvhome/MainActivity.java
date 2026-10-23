@@ -157,7 +157,11 @@ public class MainActivity extends Activity {
     private View wifiButton;      // the focusable round button
     private ImageView[] wifiIconViews; // its 48px and 52px icon layers, swapped as the network state changes
     private int wifiIcon;
-    private final List<String[]> verses = new ArrayList<>();
+    private final List<String[]> allVerses = new ArrayList<>(); // as bundled
+    private final List<String[]> verses = new ArrayList<>();    // the ones that fit the card
+    // Height the verse text may take without the card reaching up over the weather line; set after
+    // the first layout (it depends on font scale and screen), 0 until then.
+    private int verseTextMaxPx;
     private long verseDay = -1;
     // ESV: cached passages expire after this many days (Crossway asks for periodic cache clearing).
     static final long ESV_CACHE_DAYS = 30;
@@ -258,6 +262,21 @@ public class MainActivity extends Activity {
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         setContentView(buildUi());
         keepVersesThatFit();
+        // Once laid out, measure the real room above the card and drop verses that would not fit it.
+        hero.getViewTreeObserver().addOnGlobalLayoutListener(new android.view.ViewTreeObserver.OnGlobalLayoutListener() {
+            @Override public void onGlobalLayout() {
+                if (hero.getHeight() == 0 || verseRef.getHeight() == 0) return;
+                hero.getViewTreeObserver().removeOnGlobalLayoutListener(this);
+                View stack = (View) verseCard.getParent();
+                int cardBottom = stack.getTop() + verseCard.getBottom();
+                int room = cardBottom - header.getBottom() - dp(16);
+                verseTextMaxPx = room - verseCard.getPaddingTop() - verseCard.getPaddingBottom()
+                        - verseRef.getHeight() - ((LinearLayout.LayoutParams) verseRef.getLayoutParams()).topMargin;
+                keepVersesThatFit();
+                verseDay = -1; // pick today's verse again from the ones that fit
+                updateVerse(Calendar.getInstance());
+            }
+        });
         buildApps();
 
         IntentFilter pf = new IntentFilter();
@@ -400,6 +419,18 @@ public class MainActivity extends Activity {
         int screenH = getResources().getDisplayMetrics().heightPixels;
         content.addView(hero, new LinearLayout.LayoutParams(-1, screenH));
 
+        // A soft dark pool behind the clock, date and weather (drawn on the photo, unlike the cards),
+        // so they keep 4.5:1 on bright wallpapers. Radial and fading to nothing: no card edge, no
+        // layout change. It covers about a third of the screen, not all of it.
+        View headerShade = new View(this);
+        GradientDrawable shade = new GradientDrawable();
+        shade.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+        shade.setGradientCenter(0.32f, 0.24f);
+        shade.setGradientRadius(dp(330));
+        shade.setColors(new int[]{0xB3000000, 0x80000000, 0x00000000});
+        headerShade.setBackground(shade);
+        hero.addView(headerShade, lp(dp(600), dp(480), Gravity.TOP | Gravity.START, 0, 0, 0, 0));
+
         header = buildHeader();
         hero.addView(header, lp(-1, -2, Gravity.TOP, dp(48), dp(36), dp(48), 0));
 
@@ -425,6 +456,7 @@ public class MainActivity extends Activity {
         title = text(34, "sans-serif-light", Color.WHITE);
         title.setShadowLayer(dp(18), 0, 0, 0x66000000);
         title.setSingleLine(true);
+        title.setEllipsize(TextUtils.TruncateAt.END); // long app names end in "…", not mid-letter
         bottom.addView(title, new LinearLayout.LayoutParams(-2, -2));
         ((LinearLayout.LayoutParams) title.getLayoutParams()).setMargins(dp(8), 0, 0, dp(10));
 
@@ -828,6 +860,7 @@ public class MainActivity extends Activity {
 
         TextView label = text(11, "sans-serif-medium", Color.WHITE);
         label.setSingleLine(true);
+        label.setEllipsize(TextUtils.TruncateAt.END);
         label.setGravity(Gravity.CENTER);
         label.setAlpha(0f);
         if (!inDock) { box.addView(label, llp(-1, -2, 0, dp(10), 0, 0)); card.label = label; }
@@ -1353,7 +1386,7 @@ public class MainActivity extends Activity {
             weather.setTextColor(0xCCFFFFFF);
         } else {
             weather.setText(weatherCity + "  ·  Weather unavailable");
-            weather.setTextColor(0x66FFFFFF);
+            weather.setTextColor(0x99FFFFFF); // dimmer than live weather (80%), but readable on the shade
         }
     }
 
@@ -1611,17 +1644,20 @@ public class MainActivity extends Activity {
             for (String line; (line = r.readLine()) != null; ) {
                 if (line.isEmpty() || line.startsWith("#")) continue;
                 String[] v = line.split("\t", 2);
-                if (v.length == 2) verses.add(v);
+                if (v.length == 2) allVerses.add(v);
             }
         } catch (IOException ignored) { }
     }
 
     /**
-     * Drop any verse that would need more than four lines on the card, measured with the card's own
-     * font, size and width. Verse text is never shortened.
+     * Keep only verses that fit the card: at most four lines, measured with the card's own font,
+     * size and width, and (once laid out) no taller than the room above the card, so at a large
+     * system font size a long verse is skipped instead of covering the weather line. Verse text is
+     * never shortened.
      */
     private void keepVersesThatFit() {
-        for (Iterator<String[]> it = verses.iterator(); it.hasNext(); ) if (!fitsCard(it.next()[1])) it.remove();
+        verses.clear();
+        for (String[] v : allVerses) if (fitsCard(v[1])) verses.add(v);
     }
 
     /** Whether the text fits the verse card in four lines, laid out exactly as the card would. */
@@ -1633,7 +1669,7 @@ public class MainActivity extends Activity {
                 .setBreakStrategy(verseText.getBreakStrategy())
                 .setHyphenationFrequency(verseText.getHyphenationFrequency())
                 .build();
-        return l.getLineCount() <= VERSE_MAX_LINES;
+        return l.getLineCount() <= VERSE_MAX_LINES && (verseTextMaxPx <= 0 || l.getHeight() <= verseTextMaxPx);
     }
 
     /** One verse per calendar day from the ones that fit, the same all day, chosen by the local date. */
@@ -1755,7 +1791,7 @@ public class MainActivity extends Activity {
      */
     private void pruneEsvCache(SharedPreferences.Editor e, long today) {
         Set<String> refs = new HashSet<>();
-        for (String[] v : verses) refs.add(v[0]);
+        for (String[] v : allVerses) refs.add(v[0]);
         for (Map.Entry<String, ?> en : esvPrefs().getAll().entrySet()) {
             if (!en.getKey().startsWith("at:") || !(en.getValue() instanceof Long)) continue;
             String ref = en.getKey().substring(3);
