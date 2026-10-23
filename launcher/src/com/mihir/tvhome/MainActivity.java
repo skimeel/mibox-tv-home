@@ -175,7 +175,7 @@ public class MainActivity extends Activity {
     // The notice line runs edge to edge with this margin; it shrinks to fit, but not below the floor.
     static final int NOTICE_SIDE_DP = 8;
     static final float NOTICE_MAX_SP = 8f, NOTICE_MIN_SP = 5.5f;
-    private TextView esvNotice; // null unless show_esv_notice is true in config.xml
+    private TextView esvNotice; // null when the notice is off (config.xml or SHOW_ESV_NOTICE=false in esv.env)
     private boolean esvShown, esvBusy;
     // YouVersion verse of the day: the year list is used for this many days after it was fetched, and
     // only in the year it was fetched; the day is the day of the year in Melbourne. Failed requests
@@ -504,8 +504,9 @@ public class MainActivity extends Activity {
 
         // Crossway's copyright notice and esv.org: one dim line on the bottom edge, shown whenever the
         // card shows ESV text. Only the spacing is tightened to fit; the wording is never cut.
-        // Turned off by default (show_esv_notice); then the view isn't created, so it never shows or takes space.
-        if (getResources().getBoolean(R.bool.show_esv_notice)) {
+        // On by default (show_esv_notice), unless the build hid it with SHOW_ESV_NOTICE=false in
+        // esv.env. When off the view isn't created, so it never shows or takes space.
+        if (getResources().getBoolean(R.bool.show_esv_notice) && !EsvKey.HIDE_NOTICE) {
             esvNotice = text(8, "sans-serif-condensed", 0x73B3B3B3);
             esvNotice.setText(getString(R.string.esv_copyright) + " · " + getString(R.string.esv_link));
             esvNotice.setLetterSpacing(-0.01f);

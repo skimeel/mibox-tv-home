@@ -75,9 +75,12 @@ Undo everything with `tools/restore.sh <the same list>`.
   (`launcher/src/.../IcsParser.java`, tested against made-up events in `launcher/test/`). Set
   `show_event_titles` to `false` in `config.xml` to show only times and "Busy".
 - A verse of the day lower-left, one of 30 references chosen by date, in the ESV from the
-  [ESV API](https://api.esv.org/), labelled ESV. Crossway's copyright notice can be shown as one
-  dim line along the bottom edge by setting `show_esv_notice` to `true` in `config.xml` (off by
-  default). Put your key in `launcher/esv.env` (git-ignored) as `ESV_API_KEY=<key>` and rebuild; the
+  [ESV API](https://api.esv.org/), labelled ESV. The ESV API terms require Crossway's copyright
+  notice and a link to www.esv.org with the text, so by default both show as one dim line along the
+  bottom edge while ESV text is on screen (`show_esv_notice` in `config.xml`). You can hide it on
+  your own build with a `SHOW_ESV_NOTICE=false` line in `launcher/esv.env`; the build then prints
+  "ESV notice: hidden (local override)". Hiding it is your own responsibility under Crossway's terms.
+  Put your key in `launcher/esv.env` (git-ignored) as `ESV_API_KEY=<key>` and rebuild; the
   build compiles it in and never prints it. The app asks for the day's passage only while the home
   screen is in front, retries a failure after an hour (at most three requests a day), and caches it. Without a key, offline, or on any error it shows the bundled public-domain
   Berean Standard Bible text, labelled BSB. Verses that would need more than four lines are skipped,
