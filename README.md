@@ -4,8 +4,6 @@
 tiny Apple TV-style home screen with rotating nature wallpapers. You can hand the whole thing to
 Claude Code with one prompt, or do it by hand with the scripts here.
 
-![Before: Google TV home with a sponsored hero. After: clean dock over a Lake Louise wallpaper](before-after.png)
-
 On a 2 GB TCL Google TV this disabled 25 bloat apps and cut the home screen's memory use from
 192 MB to 83 MB. Everything is reversible: packages are disabled, never uninstalled.
 
