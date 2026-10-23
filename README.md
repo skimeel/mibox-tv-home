@@ -5,7 +5,14 @@ replaces the stock launcher with a clock, the weather, today's schedule, a verse
 dock of your apps over slowly changing nature photos. No ads, no recommendations, no background
 services.
 
-Screenshots will go in [docs/screenshots/](docs/screenshots/).
+![Home screen: clock, weather, tomorrow's schedule, a BSB verse and a dock of five apps](docs/screenshots/home-screen.jpg)
+
+![All apps grid with the long-press menu: Move, Add to dock, Hide](docs/screenshots/app-grid-menu.jpg)
+
+*Sample data on an Android TV emulator: made-up calendar events, fixed weather, the bundled BSB
+verse and the emulator's own apps. Wallpaper: "1 lake louise pano 2019" by Chensiyuan,
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), resized and cropped
+([source](https://commons.wikimedia.org/wiki/File%3A1_lake_louise_pano_2019.jpg)).*
 
 ## Built from
 
