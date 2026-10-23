@@ -1605,8 +1605,9 @@ public class MainActivity extends Activity {
         return t;
     }
 
+    // TODAY / TOMORROW at 70% white, like the greeting: 60% fell to 4.1:1 for TOMORROW on one wallpaper.
     private TextView calLabel(String label, int topMargin) {
-        TextView t = calText(10, "sans-serif-medium", 0x99FFFFFF);
+        TextView t = calText(10, "sans-serif-medium", 0xB3FFFFFF);
         t.setText(label);
         t.setLetterSpacing(0.22f);
         t.setLayoutParams(llp(-2, -2, 0, topMargin, 0, dp(4)));
