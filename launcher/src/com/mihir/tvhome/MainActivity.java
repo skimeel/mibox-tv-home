@@ -85,7 +85,7 @@ import java.util.Set;
 /**
  * Apple TV style home dashboard over rotating nature photos: clock, date and weather top-left, the
  * Wi-Fi network name with today's schedule under it, a verse of the day lower-left (ESV from the ESV API, cached, with the bundled
- * WEB text as the fallback), a dock of pinned apps, and every other app
+ * BSB text as the fallback), a dock of pinned apps, and every other app
  * plus Settings in a grid that scrolls up on Down. Round Wi-Fi and Settings buttons top-right, the dock and
  * the grid take D-pad focus; the weather and verse are display only. Long-press OK on an app to
  * rearrange the dock. Plain framework views only (no AndroidX), no background work; the only network
@@ -1645,14 +1645,14 @@ public class MainActivity extends Activity {
         showVerse();
     }
 
-    /** Today's {reference, WEB text} from the bundled list. */
+    /** Today's {reference, BSB text} from the bundled list. */
     private String[] todaysVerse() {
         return verses.get((int) (verseDay % verses.size()));
     }
 
     /**
      * The ESV text for today's reference when it is cached and fits the card; otherwise the bundled
-     * WEB text, labelled WEB, plus why the ESV isn't shown when that is the key.
+     * BSB text, labelled BSB, plus why the ESV isn't shown when that is the key.
      */
     private void showVerse() {
         String[] v = todaysVerse();
@@ -1714,7 +1714,7 @@ public class MainActivity extends Activity {
      * Fetch today's passage from the ESV API: only with a key, only while the launcher is resumed
      * (onResume and the minute tick call this), and only if it isn't cached. A success ends the day's
      * fetching; a failure may retry an hour later, up to three requests a day per key. Any failure
-     * leaves the WEB text up.
+     * leaves the BSB text up.
      */
     private void refreshEsv() {
         if (EsvKey.KEY.isEmpty() || verseDay < 0 || verses.isEmpty() || esvBusy || !isOnline()) return;

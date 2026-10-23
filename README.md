@@ -79,7 +79,7 @@ Undo everything with `tools/restore.sh <the same list>`.
   default). Put your key in `launcher/esv.env` (git-ignored) as `ESV_API_KEY=<key>` and rebuild; the
   build compiles it in and never prints it. The app asks for the day's passage only while the home
   screen is in front, retries a failure after an hour (at most three requests a day), and caches it. Without a key, offline, or on any error it shows the bundled public-domain
-  World English Bible text, labelled WEB. Verses that would need more than four lines are skipped,
+  Berean Standard Bible text, labelled BSB. Verses that would need more than four lines are skipped,
   never shortened.
 - A dock of your favourite apps. The focused app's name appears above it over a glow coloured from
   its banner. Press Down for every other launchable app, plus Settings, in a grid. The clock,
@@ -106,6 +106,10 @@ License 2.0), converted to vector drawables in `launcher/res/drawable/`: weight 
 the Wi-Fi and Settings buttons, in every network state (white on glass needs the heavier stroke),
 and weight 300 for the rest. The "!" badge for
 "no internet" is hand-drawn, since Material has no such icon.
+
+The fallback verses are the Berean Standard Bible (BSB), public domain
+([berean.bible/licensing.htm](https://berean.bible/licensing.htm)), copied verbatim from
+bereanbible.com/bsb.txt, downloaded 23 October 2026.
 
 ## Gotchas we hit
 

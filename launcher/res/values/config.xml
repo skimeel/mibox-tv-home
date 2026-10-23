@@ -48,10 +48,10 @@
     <string name="calendar_timezone" translatable="false">Australia/Melbourne</string>
     <bool name="show_event_titles">true</bool>
 
-    <!-- Verse of the day: the bundled list (references, plus WEB text used whenever the ESV can't be),
+    <!-- Verse of the day: the bundled list (references, plus BSB text used whenever the ESV can't be),
          and the label shown on the card for that fallback text. -->
-    <string name="verse_file" translatable="false">verses/web.tsv</string>
-    <string name="verse_translation" translatable="false">WEB</string>
+    <string name="verse_file" translatable="false">verses/bsb.tsv</string>
+    <string name="verse_translation" translatable="false">BSB</string>
     <!-- Crossway's ESV copyright notice (res/values/esv.xml) as a dim line along the bottom edge
          while ESV text is shown. Off: the notice is not shown at all; the card still says ESV. -->
     <bool name="show_esv_notice">false</bool>
