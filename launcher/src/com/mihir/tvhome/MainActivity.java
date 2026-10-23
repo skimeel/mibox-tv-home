@@ -177,6 +177,14 @@ public class MainActivity extends Activity {
     static final float NOTICE_MAX_SP = 8f, NOTICE_MIN_SP = 5.5f;
     private TextView esvNotice; // null unless show_esv_notice is true in config.xml
     private boolean esvShown, esvBusy;
+    // YouVersion verse of the day: the year list is used for this many days after it was fetched, and
+    // only in the year it was fetched; the day is the day of the year in Melbourne. Failed requests
+    // retry on the ESV schedule (an hour apart, three a day).
+    static final long VOTD_LIST_DAYS = 30;
+    static final ZoneId VOTD_ZONE = ZoneId.of("Australia/Melbourne");
+    private boolean useVotd, votdBusy;
+    private String[] votdByDay;  // passage ids by day of the year from the cached list, or null
+    private String votdLoggedId; // an id that couldn't be read, logged once
     private boolean weatherBusy;
     // Schedule card: refreshed like the weather (30 minutes after a success, 5 after a failure,
     // three quick retries), shown from the cache, and marked stale after 3 hours.
@@ -205,7 +213,7 @@ public class MainActivity extends Activity {
     // Registered only while resumed, so the weather check it runs happens only in the foreground.
     private final BroadcastReceiver tick = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) {
-            updateClock(); updateWifi(); updateWeather(); refreshEsv(); refreshCalendar(); showCalendar();
+            updateClock(); updateWifi(); updateWeather(); refreshVotd(); refreshEsv(); refreshCalendar(); showCalendar();
         }
     };
     // The default network's capabilities, kept current by netCallback while the launcher is started.
@@ -265,6 +273,9 @@ public class MainActivity extends Activity {
         calTime = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH).withZone(calZone);
         verseTranslation = getString(R.string.verse_translation);
         loadVerses(getString(R.string.verse_file));
+        useVotd = getResources().getBoolean(R.bool.use_youversion_votd) && !YouVersionKey.KEY.isEmpty()
+                && !EsvKey.KEY.isEmpty(); // without the ESV the references alone would never be shown
+        if (useVotd) votdByDay = Votd.parseYear(votdPrefs().getString("list", ""));
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
@@ -334,6 +345,7 @@ public class MainActivity extends Activity {
         updateClock();
         updateWifi();
         updateWeather();
+        refreshVotd();
         refreshEsv();
         refreshCalendar();
         showCalendar();
@@ -1751,18 +1763,21 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * The ESV text for today's reference when it is cached and fits the card; otherwise the bundled
-     * BSB text, labelled BSB, plus why the ESV isn't shown when that is the key.
+     * The ESV text for today's reference (see esvRef) when it is cached and fits the card, else the
+     * ESV text of the bundled list's verse; otherwise the bundled BSB text, labelled BSB, plus why the
+     * ESV isn't shown when that is the key.
      */
     private void showVerse() {
         String[] v = todaysVerse();
-        String esv = cachedEsv(v[0]);
+        String ref = esvRef(), esv = cachedEsv(ref);
+        if (!esvFits(esv)) esv = cachedEsv(ref = v[0]);
         String label;
-        esvShown = esv != null && fitsCard(esv);
+        esvShown = esvFits(esv);
         if (esvShown) {
             verseText.setText(esv);
             label = "ESV";
         } else {
+            ref = v[0];
             verseText.setText(v[1]);
             label = verseTranslation;
             SharedPreferences p = esvPrefs();
@@ -1771,8 +1786,32 @@ public class MainActivity extends Activity {
                 label += "  ·  ESV key rejected";
             }
         }
-        verseRef.setText((v[0] + "  ·  " + label).toUpperCase(Locale.getDefault()));
+        verseRef.setText((ref + "  ·  " + label).toUpperCase(Locale.getDefault()));
         updateNotice();
+    }
+
+    /** Cached ESV text that can go on the card ("" marks a passage the API sent too long to use). */
+    private boolean esvFits(String esv) {
+        return esv != null && !esv.isEmpty() && fitsCard(esv);
+    }
+
+    /**
+     * The reference whose ESV text the card wants today. With a YouVersion verse of the day: that
+     * verse or range; if the range's text is cached but doesn't fit, its first verse; if that doesn't
+     * fit either (or a single verse doesn't), the bundled list's verse. Each step waits for the text
+     * of the one before it. Without one, the bundled list's verse.
+     */
+    private String esvRef() {
+        String[] yv = votdToday();
+        if (yv != null) {
+            String t = cachedEsv(yv[0]);
+            if (t == null || esvFits(t)) return yv[0];
+            if (yv[1] != null) {
+                String first = cachedEsv(yv[1]);
+                if (first == null || esvFits(first)) return yv[1];
+            }
+        }
+        return todaysVerse()[0];
     }
 
     /** When enabled, the notice shows while ESV text is on the card, except during move mode. */
@@ -1817,8 +1856,8 @@ public class MainActivity extends Activity {
      * leaves the BSB text up.
      */
     private void refreshEsv() {
-        if (EsvKey.KEY.isEmpty() || verseDay < 0 || verses.isEmpty() || esvBusy || !isOnline()) return;
-        String ref = todaysVerse()[0];
+        if (EsvKey.KEY.isEmpty() || verseDay < 0 || verses.isEmpty() || esvBusy || votdBusy || !isOnline()) return;
+        String ref = esvRef(), bundledRef = todaysVerse()[0];
         SharedPreferences p = esvPrefs();
         int keyId = EsvKey.KEY.hashCode(); // tells a rebuilt key apart without storing the key
         if (cachedEsv(ref) != null) return;
@@ -1839,23 +1878,37 @@ public class MainActivity extends Activity {
                 if (status[0] == HttpURLConnection.HTTP_UNAUTHORIZED || status[0] == HttpURLConnection.HTTP_FORBIDDEN) {
                     e.putLong("rejected_day", day).putInt("rejected_key", keyId);
                 }
-                if (text != null) {
+                if (text != null || (status[0] == HttpURLConnection.HTTP_OK && !ref.equals(bundledRef))) {
+                    // A YouVersion passage sent but unusable (too long) is kept as "" so the next
+                    // reference is tried; the bundled verse keeps its retries as before.
                     pruneEsvCache(e, day);
-                    e.putString("text:" + ref, text).putLong("at:" + ref, day);
+                    e.putString("text:" + ref, text != null ? text : "").putLong("at:" + ref, day);
+                    // Only a failure waits an hour; after a success the next reference may follow now.
+                    e.putLong("tried_at", 0);
                 }
                 e.apply();
-                if (!isDestroyed() && day == verseDay) showVerse();
+                if (!isDestroyed() && day == verseDay) {
+                    showVerse();
+                    refreshEsv(); // the range's first verse or the bundled verse, if that is wanted next
+                }
             });
         }).start();
     }
 
     /**
-     * Drop expired passages and any reference no longer in the bundled list. The cache can then
-     * hold at most the list's 30 references (32 verses), far below the API's 500-verse limit.
+     * Drop expired passages and any reference in neither the bundled list nor the YouVersion list.
+     * The cache can then hold the list's 30 references (32 verses) plus at most two references a day
+     * for 30 days from YouVersion, still well below the API's 500-verse limit.
      */
     private void pruneEsvCache(SharedPreferences.Editor e, long today) {
         Set<String> refs = new HashSet<>();
         for (String[] v : allVerses) refs.add(v[0]);
+        if (votdByDay != null) {
+            for (String id : votdByDay) {
+                String[] r = Votd.reference(id);
+                if (r != null) Collections.addAll(refs, r);
+            }
+        }
         for (Map.Entry<String, ?> en : esvPrefs().getAll().entrySet()) {
             if (!en.getKey().startsWith("at:") || !(en.getValue() instanceof Long)) continue;
             String ref = en.getKey().substring(3);
@@ -1895,6 +1948,108 @@ public class MainActivity extends Activity {
             String t = passages.getString(0).trim().replaceAll("\\s+", " ");
             return t.isEmpty() || t.length() > 600 ? null : t;
         } catch (IOException | JSONException | RuntimeException e) {
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    // ---------------------------------------------------------------- YouVersion verse of the day
+
+    private SharedPreferences votdPrefs() {
+        return getSharedPreferences("votd", MODE_PRIVATE);
+    }
+
+    /** Whether the cached year list is recent enough to use: under 30 days old and from this year. */
+    private boolean votdFresh() {
+        if (votdByDay == null) return false;
+        SharedPreferences p = votdPrefs();
+        long age = System.currentTimeMillis() - p.getLong("fetched_at", 0);
+        return age >= 0 && age < VOTD_LIST_DAYS * DAY_MS
+                && p.getInt("fetched_year", 0) == LocalDate.now(VOTD_ZONE).getYear();
+    }
+
+    /** Today's {reference, first verse or null} from the YouVersion list, or null to use the bundled list. */
+    private String[] votdToday() {
+        if (!useVotd || !votdFresh()) return null;
+        String id = votdByDay[LocalDate.now(VOTD_ZONE).getDayOfYear()];
+        if (id == null) return null;
+        String[] r = Votd.reference(id);
+        if (r == null && !id.equals(votdLoggedId)) {
+            votdLoggedId = id;
+            android.util.Log.w("TvHome", "YouVersion passage id not understood, using the bundled verse: " + id);
+        }
+        return r;
+    }
+
+    /**
+     * Fetch the YouVersion year list when there is no usable one: only with both keys and the switch
+     * on, only while the launcher is resumed and online. A 429 waits at least its Retry-After; a 401,
+     * 403 or 412 stops for the day; any other failure (or an empty list) may retry an hour later, up
+     * to three requests a day. Until a list arrives the bundled verses are used.
+     */
+    private void refreshVotd() {
+        if (!useVotd || votdBusy || esvBusy || !isOnline() || votdFresh()) return;
+        SharedPreferences p = votdPrefs();
+        long now = System.currentTimeMillis(), today = LocalDate.now(VOTD_ZONE).toEpochDay();
+        if (p.getLong("blocked_day", Long.MIN_VALUE) == today || now < p.getLong("wait_until", 0)) return;
+        int tries = p.getLong("tried_day", Long.MIN_VALUE) == today ? p.getInt("tries", 0) : 0;
+        long since = now - p.getLong("tried_at", 0);
+        if (tries >= ESV_TRIES_PER_DAY || (tries > 0 && since >= 0 && since < ESV_RETRY_MS)) return;
+        votdBusy = true;
+        p.edit().putLong("tried_day", today).putInt("tries", tries + 1).putLong("tried_at", now).apply();
+        new Thread(() -> {
+            int[] status = new int[2];
+            String body = fetchVotd(status);
+            String[] list = body == null ? null : Votd.parseYear(body);
+            runOnUiThread(() -> {
+                votdBusy = false;
+                SharedPreferences.Editor e = p.edit();
+                int s = status[0];
+                if (list != null) {
+                    e.putString("list", body).putLong("fetched_at", System.currentTimeMillis())
+                            .putInt("fetched_year", LocalDate.now(VOTD_ZONE).getYear());
+                    votdByDay = list;
+                } else if (s == 429) {
+                    e.putLong("wait_until", System.currentTimeMillis() + Math.max(status[1] * 1000L, ESV_RETRY_MS));
+                } else if (s == HttpURLConnection.HTTP_UNAUTHORIZED || s == HttpURLConnection.HTTP_FORBIDDEN || s == 412) {
+                    e.putLong("blocked_day", today);
+                }
+                e.apply();
+                if (list == null) android.util.Log.w("TvHome", "YouVersion verse of the day list not loaded, HTTP " + s);
+                if (isDestroyed()) return;
+                if (list != null && verseDay >= 0 && !verses.isEmpty()) showVerse();
+                refreshEsv();
+            });
+        }).start();
+    }
+
+    /**
+     * The year list request on a worker thread: the body on HTTP 200, else null. status[0] gets the
+     * HTTP code (0 without a response), status[1] a 429's Retry-After seconds. The status is checked
+     * before anything is read, since a 429 body is plain text.
+     */
+    private String fetchVotd(int[] status) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL("https://api.youversion.com/v1/verse-of-the-days").openConnection();
+            c.setRequestProperty("X-YVP-App-Key", YouVersionKey.KEY);
+            c.setRequestProperty("Accept", "application/json");
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(15000);
+            status[0] = c.getResponseCode();
+            if (status[0] == 429) {
+                try { status[1] = Integer.parseInt(String.valueOf(c.getHeaderField("Retry-After")).trim()); }
+                catch (NumberFormatException ignored) { }
+                return null;
+            }
+            if (status[0] != HttpURLConnection.HTTP_OK) return null;
+            StringBuilder body = new StringBuilder();
+            try (BufferedReader r = new BufferedReader(new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8))) {
+                for (String line; (line = r.readLine()) != null; ) body.append(line).append('\n');
+            }
+            return body.length() > 200_000 ? null : body.toString();
+        } catch (IOException | RuntimeException e) {
             return null;
         } finally {
             if (c != null) c.disconnect();

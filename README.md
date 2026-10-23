@@ -84,6 +84,13 @@ Undo everything with `tools/restore.sh <the same list>`.
   screen is in front, retries a failure after an hour (at most three requests a day), and caches it. Without a key, offline, or on any error it shows the bundled public-domain
   Berean Standard Bible text, labelled BSB. Verses that would need more than four lines are skipped,
   never shortened.
+- Daily verse references from YouVersion Platform. With a key in `launcher/youversion.env`
+  (git-ignored) as `YOUVERSION_APP_KEY=<key>` (never commit or share it) and the ESV key, the day's
+  reference is YouVersion's verse of the day, shown in the ESV. A range too long for the card shows
+  its first verse. The year's list is fetched while the home screen is in front, kept for 30 days,
+  and refetched in a new year. Without the key, on any failure, or with `use_youversion_votd` set
+  to `false` in `config.xml`, the bundled 30-verse list is used as before. `scripts/yv-check.sh`
+  tries the same API by hand.
 - A dock of your favourite apps. The focused app's name appears above it over a glow coloured from
   its banner. Press Down for every other launchable app, plus Settings, in a grid. The clock,
   weather and verse are display only.

@@ -5,6 +5,7 @@ tools/.tv_host
 launcher/debug.keystore
 launcher/esv.env
 launcher/calendar.env
+launcher/youversion.env
 backup/
 shots/
 

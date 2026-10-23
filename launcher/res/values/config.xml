@@ -55,6 +55,9 @@
          and the label shown on the card for that fallback text. -->
     <string name="verse_file" translatable="false">verses/bsb.tsv</string>
     <string name="verse_translation" translatable="false">BSB</string>
+    <!-- Take the day's reference from the YouVersion Platform verse of the day (needs
+         launcher/youversion.env and the ESV key), shown in the ESV. False: the bundled list only. -->
+    <bool name="use_youversion_votd">true</bool>
     <!-- Crossway's ESV copyright notice (res/values/esv.xml) as a dim line along the bottom edge
          while ESV text is shown. Off: the notice is not shown at all; the card still says ESV. -->
     <bool name="show_esv_notice">false</bool>
