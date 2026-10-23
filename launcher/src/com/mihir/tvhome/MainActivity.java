@@ -1509,10 +1509,13 @@ public class MainActivity extends Activity {
         }
         if (a.isEmpty()) calCard.addView(calNote("Nothing scheduled"));
 
+        // Only when the data is stale (over 3 hours since the last successful fetch) does the card say
+        // when it was updated; fresh data needs no note. Opaque orange at 12sp keeps 5:1 or better on
+        // every wallpaper, while staying below the 13sp event rows.
         long at = p.getLong("at", 0);
-        boolean stale = System.currentTimeMillis() - at > CALENDAR_STALE_MS;
-        TextView updated = calText(9, "sans-serif", stale ? 0xB3FFC266 : 0x80FFFFFF);
-        updated.setText("Updated " + calTime.format(Instant.ofEpochMilli(at)) + (stale ? "  ·  stale" : ""));
+        if (System.currentTimeMillis() - at <= CALENDAR_STALE_MS) return;
+        TextView updated = calText(12, "sans-serif", 0xFFFFC266);
+        updated.setText("Updated " + calTime.format(Instant.ofEpochMilli(at)) + "  ·  stale");
         calCard.addView(updated, llp(-2, -2, 0, dp(8), 0, 0));
     }
 
