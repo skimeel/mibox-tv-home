@@ -60,7 +60,10 @@ Undo everything with `tools/restore.sh <the same list>`.
 ## The launcher
 
 - Clock, greeting, date and the weather (Open-Meteo, refreshed at most every 30 minutes while the
-  home screen is in front; a failed fetch retries after 5 minutes, up to three times) top-left. Pills top-right for **Wi-Fi** (network name and a live icon for
+  home screen is in front; a failed fetch retries after 5 minutes, up to three times) top-left.
+  The weather line shows the current temperature plus an icon and words for the day's forecast
+  (rain, storms, snow, fog, cloud, clear, or windy from the gust level in `config.xml`).
+  Weather data by [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Pills top-right for **Wi-Fi** (network name and a live icon for
   working, no internet, connecting or offline, or an Ethernet icon when wired; opens Wi-Fi
   settings) and **Settings**; Up from the dock reaches them. The remote's Menu key opens an
   **Inputs** dropdown (HDMI/AV/Live TV, or Settings when there are none).

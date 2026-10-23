@@ -115,6 +115,7 @@ public class MainActivity extends Activity {
     private String liveTvPkg, inputPickerPkg;
     private int cols;
     private String weatherCity, weatherLat, weatherLon, weatherTz, verseTranslation;
+    private int windyGustKmh;
 
     static final class App {
         String pkg, label;
@@ -154,6 +155,9 @@ public class MainActivity extends Activity {
     // 560dp keeps the verse card clear of the schedule card on the right at any height.
     static final int VERSE_CARD_DP = 560, VERSE_MAX_LINES = 4;
     private TextView greeting, clock, ampm, date, weather, title, verseText, verseRef, appsLabel;
+    private TextView weatherPlace;  // the city, ahead of the weather icon
+    private ImageView weatherIcon;
+    private int weatherIconRes;     // the drawable it shows, so a minute tick does not reload it
     private View wifiButton;      // the focusable round button
     private ImageView[] wifiIconViews; // its 48px and 52px icon layers, swapped as the network state changes
     private int wifiIcon;
@@ -252,6 +256,10 @@ public class MainActivity extends Activity {
         weatherLat = getString(R.string.weather_latitude);
         weatherLon = getString(R.string.weather_longitude);
         weatherTz = getString(R.string.weather_timezone);
+        windyGustKmh = getResources().getInteger(R.integer.windy_gust_kmh);
+        // A reading cached by the older text-only weather line has no icon: drop it and fetch again now.
+        SharedPreferences wp = getPreferences(MODE_PRIVATE);
+        if (wp.contains("weather_text")) wp.edit().remove("weather_text").remove("weather_tried").apply();
         calZone = IcsParser.zoneOr(getString(R.string.calendar_timezone), ZoneId.systemDefault());
         showEventTitles = getResources().getBoolean(R.bool.show_event_titles);
         calTime = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH).withZone(calZone);
@@ -536,10 +544,24 @@ public class MainActivity extends Activity {
         date.setLetterSpacing(0.22f);
         left.addView(date);
 
+        // City, the day's weather icon, then the temperature and the day's words. The row is always
+        // as tall as the icon, so the header (and the verse room measured from it) keeps its height
+        // while the icon is hidden. The icon is drawn at its own 24dp size, never scaled.
+        LinearLayout weatherRow = new LinearLayout(this);
+        weatherRow.setGravity(Gravity.CENTER_VERTICAL);
+        weatherRow.setMinimumHeight(dp(24));
+        weatherPlace = text(12, "sans-serif", 0xCCFFFFFF);
+        weatherPlace.setSingleLine(true);
+        weatherRow.addView(weatherPlace);
+        weatherIcon = new ImageView(this);
+        weatherIcon.setVisibility(View.GONE);
+        weatherRow.addView(weatherIcon, llp(dp(24), dp(24), dp(8), 0, dp(8), 0));
         weather = text(12, "sans-serif", 0xCCFFFFFF);
         weather.setSingleLine(true);
-        left.addView(weather, llp(-2, -2, 0, dp(10), 0, 0));
-        for (TextView t : new TextView[]{greeting, clock, ampm, date, weather}) t.setShadowLayer(dp(10), 0, dp(1), 0xB3000000);
+        weather.setEllipsize(TextUtils.TruncateAt.END);
+        weatherRow.addView(weather);
+        left.addView(weatherRow, llp(-2, -2, 0, dp(6), 0, 0));
+        for (TextView t : new TextView[]{greeting, clock, ampm, date, weatherPlace, weather}) t.setShadowLayer(dp(10), 0, dp(1), 0xB3000000);
         header.addView(left, new FrameLayout.LayoutParams(dp(420), -2, Gravity.START | Gravity.TOP));
 
         LinearLayout right = new LinearLayout(this);
@@ -1376,17 +1398,28 @@ public class MainActivity extends Activity {
         refreshWeather();
     }
 
-    /** The cached reading while online and recent; otherwise a quiet "unavailable". */
+    /** The cached reading while online and recent; otherwise a quiet "unavailable" with no icon. */
     private void showWeather() {
         SharedPreferences p = getPreferences(MODE_PRIVATE);
-        String text = p.getString("weather_text", null);
+        String line = p.getString("weather_line", null);
         long age = System.currentTimeMillis() - p.getLong("weather_at", 0);
-        if (text != null && age >= 0 && age < WEATHER_STALE_MS && isOnline()) {
-            weather.setText(text);
-            weather.setTextColor(0xCCFFFFFF);
+        if (line != null && age >= 0 && age < WEATHER_STALE_MS && isOnline()) {
+            weatherPlace.setText(weatherCity);
+            weatherPlace.setTextColor(0xCCFFFFFF);
+            int res = weatherIconRes(p.getString("weather_icon", ""));
+            if (res != weatherIconRes) {
+                if (res != 0) weatherIcon.setImageResource(res);
+                weatherIconRes = res;
+            }
+            weatherIcon.setContentDescription(p.getString("weather_words", ""));
+            weatherIcon.setVisibility(res != 0 ? View.VISIBLE : View.GONE);
+            weather.setText(res != 0 ? line : "  " + line);
+            weather.setVisibility(View.VISIBLE);
         } else {
-            weather.setText(weatherCity + "  ·  Weather unavailable");
-            weather.setTextColor(0x99FFFFFF); // dimmer than live weather (80%), but readable on the shade
+            weatherPlace.setText(weatherCity + "  ·  Weather unavailable");
+            weatherPlace.setTextColor(0x99FFFFFF); // dimmer than live weather (80%), but readable on the shade
+            weatherIcon.setVisibility(View.GONE);
+            weather.setVisibility(View.GONE);
         }
     }
 
@@ -1405,11 +1438,12 @@ public class MainActivity extends Activity {
         weatherBusy = true;
         p.edit().putLong("weather_tried", now).apply();
         new Thread(() -> {
-            String text = fetchWeather();
+            String[] w = fetchWeather();
             runOnUiThread(() -> {
                 weatherBusy = false;
-                if (text != null) {
-                    p.edit().putString("weather_text", text).putLong("weather_at", System.currentTimeMillis())
+                if (w != null) {
+                    p.edit().putString("weather_line", w[0]).putString("weather_icon", w[1])
+                            .putString("weather_words", w[2]).putLong("weather_at", System.currentTimeMillis())
                             .putInt("weather_fails", 0).apply();
                 } else {
                     p.edit().putInt("weather_fails", p.getInt("weather_fails", 0) + 1).apply();
@@ -1419,13 +1453,17 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    /** One forecast request on a worker thread; null on any failure. */
-    private String fetchWeather() {
+    /**
+     * One forecast request on a worker thread: {line after the icon, icon name, words}, or null on any
+     * failure. The temperature is the current one; the icon and words are the day's forecast.
+     */
+    private String[] fetchWeather() {
         HttpURLConnection c = null;
         try {
             URL url = new URL("https://api.open-meteo.com/v1/forecast?latitude=" + weatherLat
                     + "&longitude=" + weatherLon
-                    + "&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min"
+                    + "&current=temperature_2m,is_day&daily=temperature_2m_max,temperature_2m_min,"
+                    + "weather_code,wind_gusts_10m_max,precipitation_sum"
                     + "&forecast_days=1&timezone=" + URLEncoder.encode(weatherTz, "UTF-8"));
             c = (HttpURLConnection) url.openConnection();
             c.setConnectTimeout(10000);
@@ -1438,10 +1476,14 @@ public class MainActivity extends Activity {
             JSONObject j = new JSONObject(body.toString());
             JSONObject now = j.getJSONObject("current");
             JSONObject day = j.getJSONObject("daily");
-            return String.format(Locale.getDefault(), "%s  %d°  %s  ·  H %d°  L %d°", weatherCity,
-                    Math.round(now.getDouble("temperature_2m")), describeWeather(now.getInt("weather_code")),
+            String[] sky = dayWeather(day.getJSONArray("weather_code").getInt(0), now.optInt("is_day", 1) == 1,
+                    day.getJSONArray("precipitation_sum").optDouble(0, 0),
+                    day.getJSONArray("wind_gusts_10m_max").optDouble(0, 0), windyGustKmh);
+            String line = String.format(Locale.getDefault(), "%d°  %s·  H %d°  L %d°",
+                    Math.round(now.getDouble("temperature_2m")), sky[1].isEmpty() ? "" : sky[1] + "  ",
                     Math.round(day.getJSONArray("temperature_2m_max").getDouble(0)),
                     Math.round(day.getJSONArray("temperature_2m_min").getDouble(0)));
+            return new String[]{line, sky[0], sky[1]};
         } catch (IOException | JSONException | RuntimeException e) {
             return null;
         } finally {
@@ -1449,27 +1491,46 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** WMO weather interpretation codes, as used by Open-Meteo. */
-    private static String describeWeather(int code) {
+    /**
+     * The day's sky as {icon name, words}, from Open-Meteo's daily WMO code (the day's most severe
+     * weather). Drizzle under 1 mm for the day counts as cloudy, since the model codes many nearly
+     * dry days as drizzle. A gusty dry day shows the wind; a gusty wet day keeps its rain, storm or
+     * snow icon and adds ", windy". Unknown codes give no icon and no words.
+     */
+    static String[] dayWeather(int code, boolean isDay, double rainMm, double gustKmh, int windyKmh) {
+        String icon, words, wet = null;
         switch (code) {
-            case 0: return "Clear";
-            case 1: return "Mostly clear";
-            case 2: return "Partly cloudy";
-            case 3: return "Overcast";
-            case 45: case 48: return "Fog";
-            case 51: case 53: case 55: return "Drizzle";
-            case 56: case 57: return "Freezing drizzle";
-            case 61: return "Light rain";
-            case 63: return "Rain";
-            case 65: return "Heavy rain";
-            case 66: case 67: return "Freezing rain";
-            case 71: case 73: case 75: case 77: return "Snow";
-            case 80: case 81: return "Showers";
-            case 82: return "Heavy showers";
-            case 85: case 86: return "Snow showers";
-            case 95: return "Thunderstorms";
-            case 96: case 99: return "Thunderstorms, hail";
-            default: return "";
+            case 0: case 1: icon = isDay ? "clear_day" : "clear_night"; words = "Clear today"; break;
+            case 2: icon = isDay ? "partly_cloudy_day" : "partly_cloudy_night"; words = "Partly cloudy"; break;
+            case 3: icon = "cloud"; words = "Cloudy"; break;
+            case 45: case 48: icon = "foggy"; words = "Fog today"; break;
+            case 51: case 53: case 55:
+                if (rainMm < 1) { icon = "cloud"; words = "Cloudy"; } else { icon = "rainy"; wet = "Rain"; words = null; }
+                break;
+            case 56: case 57: case 61: case 63: case 65: case 66: case 67: case 80: case 81: case 82:
+                icon = "rainy"; wet = "Rain"; words = null; break;
+            case 71: case 73: case 75: case 77: case 85: case 86: icon = "weather_snowy"; wet = "Snow"; words = null; break;
+            case 95: case 96: case 97: case 99: icon = "thunderstorm"; wet = "Storms"; words = null; break;
+            default: return new String[]{"", ""};
+        }
+        boolean windy = gustKmh >= windyKmh;
+        if (wet != null) return new String[]{icon, wet + (windy ? ", windy" : " today")};
+        return windy ? new String[]{"air", "Windy today"} : new String[]{icon, words};
+    }
+
+    private static int weatherIconRes(String name) {
+        switch (name) {
+            case "clear_day": return R.drawable.ic_wx_clear_day;
+            case "clear_night": return R.drawable.ic_wx_clear_night;
+            case "partly_cloudy_day": return R.drawable.ic_wx_partly_cloudy_day;
+            case "partly_cloudy_night": return R.drawable.ic_wx_partly_cloudy_night;
+            case "cloud": return R.drawable.ic_wx_cloud;
+            case "foggy": return R.drawable.ic_wx_foggy;
+            case "rainy": return R.drawable.ic_wx_rainy;
+            case "thunderstorm": return R.drawable.ic_wx_thunderstorm;
+            case "weather_snowy": return R.drawable.ic_wx_weather_snowy;
+            case "air": return R.drawable.ic_wx_air;
+            default: return 0;
         }
     }
 
