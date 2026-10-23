@@ -121,6 +121,9 @@ The fallback verses are the Berean Standard Bible (BSB), public domain
 ([berean.bible/licensing.htm](https://berean.bible/licensing.htm)), copied verbatim from
 bereanbible.com/bsb.txt, downloaded 23 October 2026.
 
+Licences and credits for the icons, verses, weather data, YouVersion and the ESV are in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
 ## Gotchas we hit
 
 - **macOS blocks the `adb` binary** on the local network ("No route to host"). `tools/tv.py` uses
