@@ -5,12 +5,15 @@ replaces the stock launcher with a clock, the weather, today's schedule, a verse
 dock of your apps over slowly changing nature photos. No ads, no recommendations, no background
 services.
 
-![Home screen: clock, weather, tomorrow's schedule, a BSB verse and a dock of five apps](docs/screenshots/home-screen.jpg)
+![Home screen on a Mi Box S: clock, weather, today's and tomorrow's schedule, a BSB verse and a dock of six apps](docs/screenshots/home-screen.jpg)
+
+*Sample data on a Xiaomi Mi Box S: made-up calendar events, fixed weather and the bundled BSB verse.*
 
 ![All apps grid with the long-press menu: Move, Add to dock, Hide](docs/screenshots/app-grid-menu.jpg)
 
-*Sample data on an Android TV emulator: made-up calendar events, fixed weather, the bundled BSB
-verse and the emulator's own apps. Wallpaper: "1 lake louise pano 2019" by Chensiyuan,
+*Sample data on an Android TV emulator, with the emulator's own apps.*
+
+*Wallpaper in both: "1 lake louise pano 2019" by Chensiyuan,
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), resized and cropped
 ([source](https://commons.wikimedia.org/wiki/File%3A1_lake_louise_pano_2019.jpg)).*
 
@@ -132,3 +135,6 @@ over the Home button.
   Platform. Fallback verses: Berean Standard Bible, public domain. ESV text © Crossway, fetched with
   your own key and never stored in this repository. Details and the full Apache 2.0 text are in
   [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+- Netflix, YouTube, HBO Max, Apple TV, Prime Video, Disney+ and other app names and logos are
+  trademarks of their owners and appear only to show which apps the dock holds. This project is not
+  affiliated with or endorsed by them.
