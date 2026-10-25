@@ -18,6 +18,7 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Outline;
 import android.graphics.Typeface;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
@@ -2146,7 +2147,7 @@ public class MainActivity extends Activity {
         // Finish any fade still running, so at most two photos (old and new) are ever held.
         wallFront.animate().cancel();
         wallFront.setAlpha(1f);
-        wallBack.setImageDrawable(null);
+        clearWallpaper(wallBack);
         // Swap roles: the old front becomes the back, the new photo fades in on top.
         ImageView old = wallFront;
         wallFront = wallBack;
@@ -2157,8 +2158,19 @@ public class MainActivity extends Activity {
         wallFront.setImageBitmap(bm);
         wallFront.setAlpha(0f);
         wallFront.animate().alpha(1f).setDuration(wallBack.getDrawable() == null ? 600 : 2000).withEndAction(() -> {
-            wallBack.setImageDrawable(null); // release the previous photo
+            clearWallpaper(wallBack); // release the previous photo
         }).start();
+    }
+
+    /** Take a layer's photo off it, then free the pixels now instead of whenever the GC runs. */
+    private static void clearWallpaper(ImageView v) {
+        Drawable d = v.getDrawable();
+        v.setImageDrawable(null);
+        // Only decoded photos are ever set here, and no other view, field or task keeps one.
+        if (d instanceof BitmapDrawable) {
+            Bitmap bm = ((BitmapDrawable) d).getBitmap();
+            if (bm != null && !bm.isRecycled()) bm.recycle();
+        }
     }
 
     private void scheduleWallpaper(long delay) {
