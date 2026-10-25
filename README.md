@@ -64,10 +64,13 @@ rules found by testing, such as how to keep vector icons sharp and to check visu
 - **Text contrast:** the text on the home screen (greeting, clock, date, weather, schedule, verse
   and dock title) was measured on screenshots of all 12 wallpapers at 1920×1080, with the
   background taken from the middle of the luminance range behind each label. All of it passes
-  4.5:1 on every wallpaper (3:1 for the large clock and dock title). The lowest are the date (4.58:1), the calendar's TODAY
-  and TOMORROW labels (4.93:1) and the stale-calendar note (5.24:1). The weather icon is at least
-  6.75:1. The calendar labels were raised from 60% to 70% white after the TOMORROW label, shown
-  when nothing is left today, measured 4.09:1 on one wallpaper.
+  4.5:1 on every wallpaper (3:1 for the large clock and dock title). On the current set the lowest
+  is the date on Stromboli (4.95:1), and the large clock is at least 13:1 on every wallpaper. The
+  calendar's TODAY and TOMORROW labels (4.93:1), the stale-calendar note (5.24:1) and the weather
+  icon (at least 6.75:1) were measured on the previous wallpaper set and have not been re-measured;
+  the dock title was not on screen in the latest measurement, because the emulator has no apps.
+  The calendar labels were raised from 60% to 70% white after the TOMORROW label, shown when
+  nothing is left today, measured 4.09:1 on one wallpaper.
 - **Sharp icons:** the round Wi-Fi and Settings buttons used to leave their icon slightly blurred
   after being focused, because the icon was resized. Each button now stacks a 48 px and a 52 px copy
   of the icon that are never resized or scaled, and crossfades between them, so the icon is as crisp
