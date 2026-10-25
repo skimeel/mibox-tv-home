@@ -2,8 +2,8 @@
 
 A small, fast home screen for Android TV, set up for a Xiaomi Mi Box S (2 GB, Android 9). It
 replaces the stock launcher with a clock, the weather, today's schedule, a verse of the day and a
-dock of your apps over slowly changing nature photos. No ads, no recommendations, no background
-services.
+dock of your apps over slowly changing nature and city photos. No ads, no recommendations, no
+background services.
 
 ![Home screen on a Mi Box S: clock, weather, today's and tomorrow's schedule, a BSB verse and a dock of six apps](docs/screenshots/home-screen.jpg)
 
@@ -30,7 +30,7 @@ Upstream was in turn inspired by [Gathin23/tv-vibehack](https://github.com/Gathi
 
 - **Home screen:** clock, greeting and date top-left; Wi-Fi and Settings buttons top-right (the
   Wi-Fi icon shows working, no internet, connecting, off or Ethernet); the remote's Menu key opens
-  an Inputs list. 12 nature photos crossfade every 10 minutes.
+  an Inputs list. 12 nature and city photos crossfade every 10 minutes.
 - **Dock:** up to 6 favourite apps; the focused app's name shows above it. Press Down for every other
   app, plus Settings, in a grid.
 - **Move and hide:** long-press OK on an app to move it, add it to or remove it from the dock, or
@@ -131,8 +131,8 @@ over the Home button.
 
 - The code is MIT, see [LICENSE](LICENSE): copyright Mihir Gupta for upstream's work, which this
   fork keeps under the same licence.
-- The wallpaper photos are from Wikimedia Commons under CC BY-SA licences, resized and in most cases
-  cropped to 1920×1080; authors and licences are in
+- The wallpaper photos are from Wikimedia Commons under CC BY-SA licences (one is CC0), resized
+  and in most cases cropped to 1920×1080; authors and licences are in
   [launcher/WALLPAPER-CREDITS.md](launcher/WALLPAPER-CREDITS.md).
 - Icons are Material Symbols (Apache License 2.0). Weather data by
   [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0). Daily verse references from YouVersion
