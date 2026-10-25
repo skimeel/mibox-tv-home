@@ -83,9 +83,26 @@ done
 printf '    };\n}\n' >> "$CAL_OUT"
 echo "Calendar links: $CAL_COUNT found"
 unset url
+
+# Wallpapers: images in the optional, git-ignored wallpapers-private/ replace the bundled set on
+# this build only; without any (or with PUBLIC_WALLPAPERS=1) the committed set is used.
+mkdir -p "$B/assets" && cp -R assets/. "$B/assets/"
+IMAGES=( -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) )
+WP_PRIVATE=0
+if [ "${PUBLIC_WALLPAPERS:-}" != 1 ] && [ -d wallpapers-private ]; then
+  WP_PRIVATE=$(find wallpapers-private -maxdepth 1 "${IMAGES[@]}" | wc -l | tr -d ' ')
+fi
+if [ "$WP_PRIVATE" -gt 0 ]; then
+  rm -rf "$B/assets/wallpapers" && mkdir -p "$B/assets/wallpapers"
+  find wallpapers-private -maxdepth 1 "${IMAGES[@]}" -exec cp {} "$B/assets/wallpapers/" \;
+  WP_LINE="Wallpapers: private ($WP_PRIVATE)"
+else
+  WP_LINE="Wallpapers: public set ($(find assets/wallpapers -maxdepth 1 "${IMAGES[@]}" | wc -l | tr -d ' '))"
+fi
+
 "$BT/aapt2" compile --dir res -o "$B/res.zip"
 "$BT/aapt2" link -o "$B/base.apk" -I "$JAR" --manifest AndroidManifest.xml --java "$B/gen" \
-  -A assets --min-sdk-version 28 --target-sdk-version 30 "$B/res.zip"
+  -A "$B/assets" --min-sdk-version 28 --target-sdk-version 30 "$B/res.zip"
 javac -nowarn -Xlint:-options --release 11 -classpath "$JAR" -d "$B/classes" \
   $(find src "$B/gen" -name '*.java')
 "$BT/d8" --min-api 28 --lib "$JAR" --output "$B/dex" $(find "$B/classes" -name '*.class')
@@ -96,6 +113,7 @@ cp "$B/base.apk" "$B/unsigned.apk"
   -alias tvhome -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=tvhome" >/dev/null 2>&1
 "$BT/apksigner" sign --ks debug.keystore --ks-pass pass:android --out "$B/tvhome.apk" "$B/aligned.apk"
 echo "built $B/tvhome.apk ($(wc -c < "$B/tvhome.apk") bytes)"
+echo "$WP_LINE"
 [ "${1:-}" = "--build" ] && exit 0
 
 PY=../tools/venv/bin/python

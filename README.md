@@ -100,6 +100,9 @@ Requires macOS. `./setup.sh` installs JDK 17, the Android SDK pieces and a Pytho
    key) and whether the ESV notice is shown. Without `--build` it also installs on the TV found by
    `tools/find-tv.sh` and sets it as the home app.
 
+An optional, git-ignored `launcher/wallpapers-private/` folder of 1920×1080 photos overrides the
+bundled wallpapers on your own build; the build then prints "Wallpapers: private (N)".
+
 `scripts/yv-check.sh` checks your YouVersion key by hand: it prints today's verse of the day and
 its BSB text, without printing the key.
 
