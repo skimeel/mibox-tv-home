@@ -79,6 +79,8 @@ rules found by testing, such as how to keep vector icons sharp and to check visu
 These were checked on the `tvtest_1080p` Android emulator (a native 1920×1080 panel at density 320,
 like the Mi Box) using fixture data. The live ESV, YouVersion, Open-Meteo and calendar requests have
 not all been exercised on the emulator, and how it looks from the couch can only be judged on a TV.
+A stricter measure, which takes the 90th percentile of the background behind the text instead of
+the middle of the range, puts the date on Stromboli at 3.35:1, so that line is the one to watch.
 
 ## Build it with your own keys
 
