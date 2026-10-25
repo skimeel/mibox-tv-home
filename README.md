@@ -9,9 +9,10 @@ services.
 
 *Sample data on a Xiaomi Mi Box S: made-up calendar events, fixed weather and the bundled BSB verse.*
 
-![All apps grid with the long-press menu: Move, Add to dock, Hide](docs/screenshots/app-grid-menu.jpg)
+![All apps grid with the long-press menu: Move, Dock is full (6 apps), Hide](docs/screenshots/app-grid-menu.jpg)
 
-*Sample data on an Android TV emulator, with the emulator's own apps.*
+*The real Mi Box S running the sample-data build: the All Apps grid with an app's long-press menu.
+The menu shows the dock cap ("Dock is full (6 apps)").*
 
 *Wallpaper in both: "1 lake louise pano 2019" by Chensiyuan,
 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), resized and cropped
