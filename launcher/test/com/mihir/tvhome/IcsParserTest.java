@@ -85,6 +85,18 @@ public class IcsParserTest {
         checkAgenda("empty", new ArrayList<>(), at(2026, 10, 22, 9, 0), true,
                 new ArrayList<>(), new ArrayList<>());
 
+        // Countdown on the next timed event (06:30-07:30 Gym), within 60 minutes unless given.
+        checkCountdown("06:05", twoDays, at(2026, 10, 22, 6, 5), 60, "in 25 min");
+        checkCountdown("06:05:30", twoDays, at(2026, 10, 22, 6, 5).plusSeconds(30), 60, "in 25 min"); // rounded up
+        checkCountdown("06:30", twoDays, at(2026, 10, 22, 6, 30), 60, "now");
+        checkCountdown("07:29", twoDays, at(2026, 10, 22, 7, 29), 60, "now");
+        checkCountdown("05:00", twoDays, at(2026, 10, 22, 5, 0), 60, null);       // 90 min away
+        checkCountdown("05:30", twoDays, at(2026, 10, 22, 5, 30), 60, "in 1 hr");
+        checkCountdown("05:00 within 120", twoDays, at(2026, 10, 22, 5, 0), 120, "in 1 hr 30 min");
+        checkCountdown("22:00 tomorrow", twoDays, at(2026, 10, 22, 22, 0), 600, null); // tomorrow's events: none
+        checkCountdown("titles off", parse(fixture, day(2026, 10, 22), day(2026, 10, 24), false),
+                at(2026, 10, 22, 6, 5), 60, "in 25 min");
+
         System.out.println(failures == 0 ? "ALL PASSED" : failures + " FAILED");
         System.exit(failures == 0 ? 0 : 1);
     }
@@ -128,6 +140,11 @@ public class IcsParserTest {
         report("agenda " + name + " tomorrow", Arrays.asList(String.valueOf(a.tomorrow)), Arrays.asList(String.valueOf(tomorrow)));
         report("agenda " + name + " all-day", gAll, allDay);
         report("agenda " + name + " rows", gRows, rows);
+    }
+
+    static void checkCountdown(String name, List<IcsParser.Event> events, ZonedDateTime now, int within, String want) {
+        String got = Agenda.countdown(Agenda.pick(events, now), now.toInstant().toEpochMilli(), within);
+        report("countdown " + name, Arrays.asList(String.valueOf(got)), Arrays.asList(String.valueOf(want)));
     }
 
     static void report(String name, List<String> got, List<String> want) {

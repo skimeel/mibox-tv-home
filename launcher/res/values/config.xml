@@ -56,6 +56,10 @@
          in this time zone. Set show_event_titles to false to show only times and "Busy". -->
     <string name="calendar_timezone" translatable="false">Australia/Melbourne</string>
     <bool name="show_event_titles">true</bool>
+    <!-- A small "in 25 min" label on the next timed event today when it starts within
+         countdown_minutes, and "now" while it is on. All-day events get none. -->
+    <bool name="show_event_countdown">true</bool>
+    <integer name="countdown_minutes">60</integer>
 
     <!-- Verse of the day: the bundled list (references, plus BSB text used whenever the ESV can't be),
          and the label shown on the card for that fallback text. -->

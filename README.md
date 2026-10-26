@@ -43,7 +43,8 @@ Upstream was in turn inspired by [Gathin23/tv-vibehack](https://github.com/Gathi
 - **Weather:** the current temperature and an icon and words for the day's forecast (clear, partly
   cloudy, cloudy, fog, rain, storms, snow, or windy from the day's gusts), from Open-Meteo.
 - **Schedule:** today's remaining events (or tomorrow's first ones) from up to three Google Calendar
-  private iCal links, cached for offline use and marked as stale after 3 hours.
+  private iCal links, cached for offline use and marked as stale after 3 hours. The next timed event
+  today shows "in 25 min" in the hour before it starts and "now" while it is on.
 
 Everything on screen except the dock, grid and the two buttons is display only. Network requests
 happen only while the home screen is in front, and each source retries failures on a slow schedule.

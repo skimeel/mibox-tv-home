@@ -58,4 +58,19 @@ final class Agenda {
         }
         return a;
     }
+
+    /**
+     * The label for the next timed event today: "now" while it is on, "in 25 min" (or "in 1 hr 30 min")
+     * when it starts within withinMin minutes, else null. Never for tomorrow's events or all-day ones.
+     */
+    static String countdown(Agenda a, long nowMs, int withinMin) {
+        if (a.tomorrow || a.events.isEmpty()) return null;
+        IcsParser.Event e = a.events.get(0);
+        if (e.allDay) return null;
+        if (e.start <= nowMs) return e.end > nowMs ? "now" : null;
+        long min = (e.start - nowMs + 59_999) / 60_000; // rounded up: 24 min 10 s is "in 25 min"
+        if (min > withinMin) return null;
+        if (min < 60) return "in " + min + " min";
+        return "in " + min / 60 + " hr" + (min % 60 == 0 ? "" : " " + min % 60 + " min");
+    }
 }

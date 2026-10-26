@@ -203,6 +203,8 @@ public class MainActivity extends Activity {
     private LinearLayout calCard;
     private ZoneId calZone;
     private boolean showEventTitles, calendarBusy;
+    private boolean showCountdown;
+    private int countdownMinutes;
     private DateTimeFormatter calTime;
     private int glowColor = 0xFF3A3A3A;
     private ValueAnimator glowAnim;
@@ -282,6 +284,8 @@ public class MainActivity extends Activity {
         if (wp.contains("weather_text")) wp.edit().remove("weather_text").remove("weather_tried").apply();
         calZone = IcsParser.zoneOr(getString(R.string.calendar_timezone), ZoneId.systemDefault());
         showEventTitles = getResources().getBoolean(R.bool.show_event_titles);
+        showCountdown = getResources().getBoolean(R.bool.show_event_countdown);
+        countdownMinutes = getResources().getInteger(R.integer.countdown_minutes);
         calTime = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH).withZone(calZone);
         verseTranslation = getString(R.string.verse_translation);
         loadVerses(getString(R.string.verse_file));
@@ -1613,8 +1617,11 @@ public class MainActivity extends Activity {
             calCard.addView(allDay, llp(-1, -2, 0, dp(4), 0, dp(2)));
         }
         if (a.tomorrow && !a.events.isEmpty()) calCard.addView(calLabel("TOMORROW", dp(8)));
+        // The minute tick redraws the card, so the countdown stays current.
+        String countdown = showCountdown ? Agenda.countdown(a, System.currentTimeMillis(), countdownMinutes) : null;
         for (IcsParser.Event e : a.events) {
-            calCard.addView(calRow(e.allDay ? "All day" : calTime.format(Instant.ofEpochMilli(e.start)), eventTitle(e)));
+            calCard.addView(calRow(e.allDay ? "All day" : calTime.format(Instant.ofEpochMilli(e.start)), eventTitle(e),
+                    e == a.events.get(0) ? countdown : null));
         }
         if (a.isEmpty()) calCard.addView(calNote("Nothing scheduled"));
 
@@ -1656,7 +1663,7 @@ public class MainActivity extends Activity {
         return t;
     }
 
-    private View calRow(String time, String title) {
+    private View calRow(String time, String title, String countdown) {
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, dp(3), 0, dp(3));
@@ -1666,6 +1673,12 @@ public class MainActivity extends Activity {
         TextView n = calText(13, "sans-serif", Color.WHITE);
         n.setText(title);
         row.addView(n, new LinearLayout.LayoutParams(0, -2, 1f));
+        if (countdown != null) {
+            // Never squeezed: the title takes what is left and ends in "…".
+            TextView c = calText(12, "sans-serif-medium", 0xE6FFFFFF);
+            c.setText(countdown);
+            row.addView(c, llp(-2, -2, dp(8), 0, 0, 0));
+        }
         return row;
     }
 
