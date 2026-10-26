@@ -41,7 +41,8 @@ Upstream was in turn inspired by [Gathin23/tv-vibehack](https://github.com/Gathi
   bundled list of 30 verses in the public-domain Berean Standard Bible (BSB). Crossway's copyright
   notice and www.esv.org show along the bottom edge while ESV text is on screen.
 - **Weather:** the current temperature and an icon and words for the day's forecast (clear, partly
-  cloudy, cloudy, fog, rain, storms, snow, or windy from the day's gusts), from Open-Meteo.
+  cloudy, cloudy, fog, rain, storms, snow, or windy from the day's gusts), from Open-Meteo. While it
+  is dry but rain is likely within 12 hours, "Rain from 3 pm" takes the place of the high and low.
 - **Schedule:** today's remaining events (or tomorrow's first ones) from up to three Google Calendar
   private iCal links, cached for offline use and marked as stale after 3 hours. The next timed event
   today shows "in 25 min" in the hour before it starts and "now" while it is on.

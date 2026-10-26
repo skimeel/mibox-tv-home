@@ -51,6 +51,11 @@
     <!-- The day counts as windy from this maximum gust (km/h): the wind icon and "Windy today" on a
          dry day, ", windy" after the words on a wet one. -->
     <integer name="windy_gust_kmh">50</integer>
+    <!-- "Rain from 3 pm" in place of the high and low while it is dry now and some hour in the next 12
+         has at least rain_threshold_pct chance of rain or snow. Not shown when it stays dry or is
+         wet already. -->
+    <bool name="show_rain_line">true</bool>
+    <integer name="rain_threshold_pct">50</integer>
 
     <!-- Schedule card: today's events from the iCal links in launcher/calendar.env (git-ignored),
          in this time zone. Set show_event_titles to false to show only times and "Busy". -->

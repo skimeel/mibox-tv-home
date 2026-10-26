@@ -68,6 +68,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -165,6 +166,8 @@ public class MainActivity extends Activity {
     static final int VERSE_CARD_DP = 560, VERSE_MAX_LINES = 4;
     private TextView greeting, clock, ampm, date, weather, title, verseText, verseRef, appsLabel;
     private TextView weatherPlace;  // the city, ahead of the weather icon
+    private boolean showRain;       // "Rain from 3 pm" in place of the high and low (show_rain_line)
+    private int rainThresholdPct;
     private ImageView weatherIcon;
     private int weatherIconRes;     // the drawable it shows, so a minute tick does not reload it
     private View wifiButton;      // the focusable round button
@@ -276,6 +279,8 @@ public class MainActivity extends Activity {
         weatherLon = getString(R.string.weather_longitude);
         weatherTz = getString(R.string.weather_timezone);
         windyGustKmh = getResources().getInteger(R.integer.windy_gust_kmh);
+        showRain = getResources().getBoolean(R.bool.show_rain_line);
+        rainThresholdPct = getResources().getInteger(R.integer.rain_threshold_pct);
         nightEnabled = getResources().getBoolean(R.bool.night_mode_enabled);
         nightStart = getResources().getInteger(R.integer.night_start_hour);
         nightEnd = getResources().getInteger(R.integer.night_end_hour);
@@ -1465,6 +1470,9 @@ public class MainActivity extends Activity {
             }
             weatherIcon.setContentDescription(p.getString("weather_words", ""));
             weatherIcon.setVisibility(res != 0 ? View.VISIBLE : View.GONE);
+            // Rain on its way: its hour takes the place of the high and low, so the row keeps one line.
+            String rain = rainText(p);
+            if (rain != null) line = p.getString("weather_lead", "") + rain;
             weather.setText(res != 0 ? line : "  " + line);
             weather.setVisibility(View.VISIBLE);
         } else {
@@ -1473,6 +1481,26 @@ public class MainActivity extends Activity {
             weatherIcon.setVisibility(View.GONE);
             weather.setVisibility(View.GONE);
         }
+    }
+
+    /**
+     * "Rain from 3 pm" while the cached reading's first rainy hour is still ahead, else null. A cache
+     * written before the rain hour was added (or with an unexpected value) gives null.
+     */
+    private String rainText(SharedPreferences p) {
+        if (!showRain) return null;
+        long from;
+        try {
+            from = p.getLong("weather_rain_from", 0);
+            if (p.getString("weather_lead", null) == null) return null;
+        } catch (ClassCastException e) {
+            return null;
+        }
+        if (from <= System.currentTimeMillis()) return null;
+        boolean is24 = android.text.format.DateFormat.is24HourFormat(this);
+        DateTimeFormatter f = DateTimeFormatter.ofPattern(is24 ? "H:mm" : "h a", Locale.ENGLISH)
+                .withZone(IcsParser.zoneOr(weatherTz, ZoneId.systemDefault()));
+        return "Rain from " + f.format(Instant.ofEpochMilli(from)).toLowerCase(Locale.ENGLISH);
     }
 
     /**
@@ -1495,7 +1523,9 @@ public class MainActivity extends Activity {
                 weatherBusy = false;
                 if (w != null) {
                     p.edit().putString("weather_line", w[0]).putString("weather_icon", w[1])
-                            .putString("weather_words", w[2]).putLong("weather_at", System.currentTimeMillis())
+                            .putString("weather_words", w[2]).putString("weather_lead", w[3])
+                            .putLong("weather_rain_from", Long.parseLong(w[4]))
+                            .putLong("weather_at", System.currentTimeMillis())
                             .putInt("weather_fails", 0).apply();
                 } else {
                     p.edit().putInt("weather_fails", p.getInt("weather_fails", 0) + 1).apply();
@@ -1506,16 +1536,19 @@ public class MainActivity extends Activity {
     }
 
     /**
-     * One forecast request on a worker thread: {line after the icon, icon name, words}, or null on any
-     * failure. The temperature is the current one; the icon and words are the day's forecast.
+     * One forecast request on a worker thread: {line after the icon, icon name, words, the line up to
+     * the high and low, first rainy hour}, or null on any failure. The temperature is the current one; the icon and words are the
+     * day's forecast. The rainy hour (epoch ms, "0" for none) is the first of the next 12 with at least
+     * rain_threshold_pct chance of precipitation, looked for only while it is dry now.
      */
     private String[] fetchWeather() {
         HttpURLConnection c = null;
         try {
             URL url = new URL("https://api.open-meteo.com/v1/forecast?latitude=" + weatherLat
                     + "&longitude=" + weatherLon
-                    + "&current=temperature_2m,is_day&daily=temperature_2m_max,temperature_2m_min,"
-                    + "weather_code,wind_gusts_10m_max,precipitation_sum"
+                    + "&current=temperature_2m,is_day,precipitation,weather_code"
+                    + "&daily=temperature_2m_max,temperature_2m_min,weather_code,wind_gusts_10m_max,precipitation_sum"
+                    + "&hourly=precipitation_probability&forecast_hours=13" // this hour and the next 12
                     + "&forecast_days=1&timezone=" + URLEncoder.encode(weatherTz, "UTF-8"));
             c = (HttpURLConnection) url.openConnection();
             c.setConnectTimeout(10000);
@@ -1531,16 +1564,33 @@ public class MainActivity extends Activity {
             String[] sky = dayWeather(day.getJSONArray("weather_code").getInt(0), now.optInt("is_day", 1) == 1,
                     day.getJSONArray("precipitation_sum").optDouble(0, 0),
                     day.getJSONArray("wind_gusts_10m_max").optDouble(0, 0), windyGustKmh);
-            String line = String.format(Locale.getDefault(), "%d°  %s·  H %d°  L %d°",
-                    Math.round(now.getDouble("temperature_2m")), sky[1].isEmpty() ? "" : sky[1] + "  ",
+            String lead = String.format(Locale.getDefault(), "%d°  %s·  ",
+                    Math.round(now.getDouble("temperature_2m")), sky[1].isEmpty() ? "" : sky[1] + "  ");
+            String line = lead + String.format(Locale.getDefault(), "H %d°  L %d°",
                     Math.round(day.getJSONArray("temperature_2m_max").getDouble(0)),
                     Math.round(day.getJSONArray("temperature_2m_min").getDouble(0)));
-            return new String[]{line, sky[0], sky[1]};
+            return new String[]{line, sky[0], sky[1], lead, String.valueOf(firstRainyHour(j, now))};
         } catch (IOException | JSONException | RuntimeException e) {
             return null;
         } finally {
             if (c != null) c.disconnect();
         }
+    }
+
+    /** Start of the first hour after now with a high enough chance of precipitation, or 0. */
+    private long firstRainyHour(JSONObject j, JSONObject now) throws JSONException {
+        // Wet already (any precipitation, or a drizzle, rain, snow or storm code): the words cover it.
+        if (now.optDouble("precipitation", 0) > 0 || now.optInt("weather_code", 0) >= 51) return 0;
+        JSONObject hourly = j.optJSONObject("hourly");
+        if (hourly == null) return 0;
+        JSONArray times = hourly.getJSONArray("time"), chance = hourly.getJSONArray("precipitation_probability");
+        ZoneId zone = IcsParser.zoneOr(weatherTz, ZoneId.systemDefault());
+        long nowMs = System.currentTimeMillis();
+        for (int i = 0; i < times.length() && i < chance.length(); i++) {
+            long t = LocalDateTime.parse(times.getString(i)).atZone(zone).toInstant().toEpochMilli();
+            if (t > nowMs && t <= nowMs + 12 * 60 * 60 * 1000L && chance.optInt(i, 0) >= rainThresholdPct) return t;
+        }
+        return 0;
     }
 
     /**
