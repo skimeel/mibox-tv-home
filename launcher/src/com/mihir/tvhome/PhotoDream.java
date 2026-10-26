@@ -238,7 +238,7 @@ public class PhotoDream extends DreamService {
         int time = night ? 0xCCFFFFFF : Color.WHITE;
         clock.setTextColor(time);
         ampm.setTextColor(time);
-        date.setTextColor(night ? 0xB3FFFFFF : 0xCCFFFFFF);
+        date.setTextColor(night ? 0xB3FFFFFF : 0xE6FFFFFF);
         float shade = night ? MainActivity.NIGHT_SHADE : 0f;
         if (first) nightShade.setAlpha(shade);
         else nightShade.animate().alpha(shade).setDuration(MainActivity.NIGHT_FADE_MS).start();
