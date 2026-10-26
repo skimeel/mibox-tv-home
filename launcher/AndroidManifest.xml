@@ -51,5 +51,19 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- Screensaver: chosen in Settings, Screen saver (or with settings put secure
+             screensaver_components). Android starts and ends it; it never runs on its own. -->
+        <service
+            android:name=".PhotoDream"
+            android:label="tv-home photos"
+            android:exported="true"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data android:name="android.service.dream" android:resource="@xml/dream_info" />
+        </service>
     </application>
 </manifest>

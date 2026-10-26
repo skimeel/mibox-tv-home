@@ -2261,7 +2261,7 @@ public class MainActivity extends Activity {
     }
 
     /** Take a layer's photo off it, then free the pixels now instead of whenever the GC runs. */
-    private static void clearWallpaper(ImageView v) {
+    static void clearWallpaper(ImageView v) {
         Drawable d = v.getDrawable();
         v.setImageDrawable(null);
         // Only decoded photos are ever set here, and no other view, field or task keeps one.

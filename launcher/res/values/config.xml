@@ -43,6 +43,11 @@
     <integer name="night_start_hour">22</integer>
     <integer name="night_end_hour">6</integer>
 
+    <!-- Screensaver (tv-home photos): seconds each photo stays, and minutes before the clock moves
+         to another spot (it fades out and back in, so no part of the screen holds it for long). -->
+    <integer name="dream_photo_seconds">120</integer>
+    <integer name="dream_clock_move_minutes">5</integer>
+
     <!-- Weather line under the date, from Open-Meteo (no key). Timezone sets which day's high/low. -->
     <string name="weather_city" translatable="false">Melbourne</string>
     <string name="weather_latitude" translatable="false">-37.8136</string>
