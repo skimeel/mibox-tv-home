@@ -139,6 +139,14 @@ public class MainActivity extends Activity {
     private LinearLayout grid;
     private View glow;
     private View gridShade;
+    private boolean gridDimmed;     // gridShade is fully up while the grid is in view
+    // Night mode: between these hours the photo is dimmed by raising gridShade a fixed amount.
+    // NIGHT_SHADE is gridShade's alpha at rest at night (its 70% black, so the photo gets 28% darker).
+    static final float NIGHT_SHADE = 0.4f;
+    static final long NIGHT_FADE_MS = 1500;
+    private boolean nightEnabled;
+    private int nightStart, nightEnd;
+    private Boolean nightOn;        // null until the first clock update, which sets it without a fade
     private ImageView wallBack, wallFront;
     private String[] wallpapers = new String[0];
     private int wallIndex = -1;
@@ -266,6 +274,9 @@ public class MainActivity extends Activity {
         weatherLon = getString(R.string.weather_longitude);
         weatherTz = getString(R.string.weather_timezone);
         windyGustKmh = getResources().getInteger(R.integer.windy_gust_kmh);
+        nightEnabled = getResources().getBoolean(R.bool.night_mode_enabled);
+        nightStart = getResources().getInteger(R.integer.night_start_hour);
+        nightEnd = getResources().getInteger(R.integer.night_end_hour);
         // A reading cached by the older text-only weather line has no icon: drop it and fetch again now.
         SharedPreferences wp = getPreferences(MODE_PRIVATE);
         if (wp.contains("weather_text")) wp.edit().remove("weather_text").remove("weather_tried").apply();
@@ -1358,6 +1369,29 @@ public class MainActivity extends Activity {
         ampm.setText(is24 ? "" : (h < 12 ? "AM" : "PM"));
         date.setText(new SimpleDateFormat("EEEE  d MMMM", Locale.getDefault()).format(now.getTime()).toUpperCase(Locale.getDefault()));
         updateVerse(now);
+        updateNight(h);
+    }
+
+    /** At the minute tick, fade the night dimming in or out; the first call after a start sets it at once. */
+    private void updateNight(int hour) {
+        boolean night = nightEnabled && isNight(hour, nightStart, nightEnd);
+        if (nightOn != null && nightOn == night) return;
+        boolean first = nightOn == null;
+        nightOn = night;
+        if (gridDimmed) return; // the grid keeps its full dimming; fadeGlow returns to restShade()
+        if (first) gridShade.setAlpha(restShade());
+        else gridShade.animate().alpha(restShade()).setDuration(NIGHT_FADE_MS).start();
+    }
+
+    /** Whether the hour is in [start, end), which wraps past midnight when start > end. Equal hours: never. */
+    static boolean isNight(int hour, int start, int end) {
+        if (start == end) return false;
+        return start < end ? hour >= start && hour < end : hour >= start || hour < end;
+    }
+
+    /** gridShade's alpha while the grid is not in view. */
+    private float restShade() {
+        return Boolean.TRUE.equals(nightOn) ? NIGHT_SHADE : 0f;
     }
 
     /**
@@ -2082,7 +2116,8 @@ public class MainActivity extends Activity {
     private void fadeGlow(float alpha) {
         glow.animate().alpha(alpha).setDuration(300).start();
         // The grid sits over the photo's busiest middle part, so dim it while browsing apps.
-        gridShade.animate().alpha(alpha < 1f ? 1f : 0f).setDuration(300).start();
+        gridDimmed = alpha < 1f;
+        gridShade.animate().alpha(gridDimmed ? 1f : restShade()).setDuration(300).start();
     }
 
     // ---------------------------------------------------------------- wallpaper

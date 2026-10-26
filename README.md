@@ -31,6 +31,7 @@ Upstream was in turn inspired by [Gathin23/tv-vibehack](https://github.com/Gathi
 - **Home screen:** clock, greeting and date top-left; Wi-Fi and Settings buttons top-right (the
   Wi-Fi icon shows working, no internet, connecting, off or Ethernet); the remote's Menu key opens
   an Inputs list. 12 nature and city photos crossfade every 10 minutes.
+- **Night mode:** from 10 pm to 6 am the photo is dimmed a little more, while the text stays the same.
 - **Dock:** up to 6 favourite apps; the focused app's name shows above it. Press Down for every other
   app, plus Settings, in a grid.
 - **Move and hide:** long-press OK on an app to move it, add it to or remove it from the dock, or

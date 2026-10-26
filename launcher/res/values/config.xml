@@ -37,6 +37,12 @@
     <!-- Tiles per row in the grid. -->
     <integer name="columns">5</integer>
 
+    <!-- Night mode: from night_start_hour until night_end_hour (0 to 23, device clock) the photo is
+         dimmed a little more; the text stays the same. The window may cross midnight. -->
+    <bool name="night_mode_enabled">true</bool>
+    <integer name="night_start_hour">22</integer>
+    <integer name="night_end_hour">6</integer>
+
     <!-- Weather line under the date, from Open-Meteo (no key). Timezone sets which day's high/low. -->
     <string name="weather_city" translatable="false">Melbourne</string>
     <string name="weather_latitude" translatable="false">-37.8136</string>
