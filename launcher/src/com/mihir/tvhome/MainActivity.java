@@ -166,7 +166,7 @@ public class MainActivity extends Activity {
     static final int VERSE_CARD_DP = 560, VERSE_MAX_LINES = 4;
     private TextView greeting, clock, ampm, date, weather, title, verseText, verseRef, appsLabel;
     private TextView weatherPlace;  // the city, ahead of the weather icon
-    private boolean showRain;       // "Rain from 3 pm" in place of the high and low (show_rain_line)
+    private boolean showRainHint;   // "Rain from 3 pm" in place of the high and low (show_rain_hint)
     private int rainThresholdPct;
     private ImageView weatherIcon;
     private int weatherIconRes;     // the drawable it shows, so a minute tick does not reload it
@@ -279,7 +279,7 @@ public class MainActivity extends Activity {
         weatherLon = getString(R.string.weather_longitude);
         weatherTz = getString(R.string.weather_timezone);
         windyGustKmh = getResources().getInteger(R.integer.windy_gust_kmh);
-        showRain = getResources().getBoolean(R.bool.show_rain_line);
+        showRainHint = getResources().getBoolean(R.bool.show_rain_hint);
         rainThresholdPct = getResources().getInteger(R.integer.rain_threshold_pct);
         nightEnabled = getResources().getBoolean(R.bool.night_mode_enabled);
         nightStart = getResources().getInteger(R.integer.night_start_hour);
@@ -1488,7 +1488,7 @@ public class MainActivity extends Activity {
      * written before the rain hour was added (or with an unexpected value) gives null.
      */
     private String rainText(SharedPreferences p) {
-        if (!showRain) return null;
+        if (!showRainHint) return null;
         long from;
         try {
             from = p.getLong("weather_rain_from", 0);

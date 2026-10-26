@@ -54,7 +54,7 @@
     <!-- "Rain from 3 pm" in place of the high and low while it is dry now and some hour in the next 12
          has at least rain_threshold_pct chance of rain or snow. Not shown when it stays dry or is
          wet already. -->
-    <bool name="show_rain_line">true</bool>
+    <bool name="show_rain_hint">true</bool>
     <integer name="rain_threshold_pct">50</integer>
 
     <!-- Schedule card: today's events from the iCal links in launcher/calendar.env (git-ignored),

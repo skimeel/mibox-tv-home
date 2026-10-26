@@ -15,7 +15,8 @@ Follow these for every UI change to the launcher. It is a TV seen from about 3 m
    change, 150 to 200 ms ease-out. Unfocused items stay calm.
 5. **Motion:** short and purposeful, 150 to 250 ms. Nothing animates while idle. Exception: the
    slow wallpaper crossfade every 10 minutes stays, because it is a core part of the look. Do not
-   remove or shorten it.
+   remove or shorten it. Exception: the 1.5 s night fade, when night mode dims the photo or lifts the
+   dimming at the minute tick, stays slow so the change is gentle and not a sudden jump.
 6. **Cost:** no blur or RenderScript, no big shadows on many views, no full-screen overdraw. Keep
    total launcher memory under 40 MB.
    **Sharp icons:** never scale a view that holds a vector icon; a scaled view stretches the
