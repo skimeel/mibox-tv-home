@@ -3,7 +3,7 @@
 A small, fast home screen for Android TV, set up for a Xiaomi Mi Box S (2 GB, Android 9). It
 replaces the stock launcher with a clock, the weather, today's schedule, a verse of the day and a
 dock of your apps over slowly changing nature and city photos. No ads, no recommendations, no
-background services.
+background services; an optional screensaver runs only when Android starts it on an idle TV.
 
 ![Home screen on a Mi Box S: clock, weather, today's and tomorrow's schedule, a BSB verse and a dock of six apps](docs/screenshots/home-screen.jpg)
 
@@ -46,6 +46,9 @@ Upstream was in turn inspired by [Gathin23/tv-vibehack](https://github.com/Gathi
 - **Schedule:** today's remaining events (or tomorrow's first ones) from up to three Google Calendar
   private iCal links, cached for offline use and marked as stale after 3 hours. The next timed event
   today shows "in 25 min" in the hour before it starts and "now" while it is on.
+- **Screensaver (optional):** the 12 photos full screen, a new one every 2 minutes, with the time
+  and date in one of six spots that changes every 5 minutes. It uses no network and shows nothing
+  personal. It is off until you choose it (see below).
 
 Everything on screen except the dock, grid and the two buttons is display only. Network requests
 happen only while the home screen is in front, and each source retries failures on a slow schedule.
@@ -112,6 +115,19 @@ Requires macOS. `./setup.sh` installs JDK 17, the Android SDK pieces and a Pytho
 
 An optional, git-ignored `launcher/wallpapers-private/` folder of 1920×1080 photos overrides the
 bundled wallpapers on your own build; the build then prints "Wallpapers: private (N)".
+
+The screensaver, "tv-home photos", is never turned on by the build. Choose it in the TV's Settings
+under Screen saver if it is listed there, or set it over ADB. Note the current one first so you can
+go back to it (on the Mi Box S it is Ambient mode, `com.google.android.backdrop/.Backdrop`):
+
+```
+tools/venv/bin/python -I tools/tv.py 'settings get secure screensaver_components'
+tools/venv/bin/python -I tools/tv.py 'settings put secure screensaver_components com.mihir.tvhome/.PhotoDream'
+```
+
+To go back, put the noted value back, for example
+`tools/venv/bin/python -I tools/tv.py 'settings put secure screensaver_components com.google.android.backdrop/.Backdrop'`.
+`tools/restore.sh` does this too. Photo and clock timing are in config.xml.
 
 `scripts/yv-check.sh` checks your YouVersion key by hand: it prints today's verse of the day and
 its BSB text, without printing the key.

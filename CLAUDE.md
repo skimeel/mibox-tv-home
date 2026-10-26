@@ -17,8 +17,13 @@ Follow these for every UI change to the launcher. It is a TV seen from about 3 m
    slow wallpaper crossfade every 10 minutes stays, because it is a core part of the look. Do not
    remove or shorten it. Exception: the 1.5 s night fade, when night mode dims the photo or lifts the
    dimming at the minute tick, stays slow so the change is gentle and not a sudden jump.
+   Exception: the screensaver fades each photo out to black and the next one in (about 1 s each)
+   every dream_photo_seconds, and fades the clock out and back in (1 s each) when it moves every
+   dream_clock_move_minutes. Nothing else in it moves.
 6. **Cost:** no blur or RenderScript, no big shadows on many views, no full-screen overdraw. Keep
-   total launcher memory under 40 MB.
+   total launcher memory under 40 MB, including the screensaver while it runs. It holds one
+   full-size 1920x1080 ARGB_8888 photo (about 8 MB) at a time, never two, which is why it fades
+   through black instead of crossfading; RGB_565 bands in dark skies at full size.
    **Sharp icons:** never scale a view that holds a vector icon; a scaled view stretches the
    rendered bitmap and blurs it. Size changes on focus go through padding or bounds in whole
    pixels. Do not resize one vector drawable back and forth either: resizing 48 -> 52 -> 48 px left
@@ -36,3 +41,6 @@ Follow these for every UI change to the launcher. It is a TV seen from about 3 m
    1920x1080 panel at density 320, like the Mi Box), not the resized Pixel 3a: its `wm size`
    override rescales every frame and blurs screenshots. Test on the real wallpapers, not only a
    plain background.
+10. **Screensaver:** only the photo, the time and the date. No network; no weather, calendar,
+    verse or anything personal; no per-frame animation (no Ken Burns) and no blur. It runs only
+    while Android shows it on an idle TV and never starts anything on its own.
