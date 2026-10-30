@@ -64,11 +64,15 @@ rules found by testing, such as how to keep vector icons sharp and to check visu
 
 ## What I measured
 
-- **Memory:** about 28 to 37 MB on a 2 GB Mi Box S (total PSS from dumpsys meminfo for the
-  launcher process, read over adb on the box itself at several times of day: 27.9 MB at rest and up
-  to 36.9 MB). Emulator numbers are not comparable and are not used for these figures. A test of 40
-  photo changes on the emulator found no leak: memory returns to its starting level after garbage
-  collection, and the peak comes from old photos waiting to be collected.
+- **Memory:** about 23 MB at rest on a 2 GB Mi Box S, and 22 to 35 MB while the screensaver runs.
+  One reading taken seconds after the screensaver started was 44.7 MB, within the brief start-up
+  allowance of about 45 MB in CLAUDE.md (total PSS from dumpsys meminfo for the launcher process,
+  read over adb on the box itself). An hour of the screensaver on the box showed no sign of a leak.
+  Google's Ambient mode screensaver measured 77 MB total on the same box, but about 32 MB of that
+  is clean file-backed memory Android can reclaim, so the comparison is rough. Emulator numbers are
+  not comparable and are not used for these figures. A test of 40 photo changes on the emulator
+  also found no leak: memory returned to its starting level after garbage collection, and the
+  peak in that test came from old photos waiting to be collected.
 - **Text contrast:** the text on the home screen (greeting, clock, date, weather, schedule, verse
   and dock title) was measured on screenshots of all 12 wallpapers at 1920×1080, with the
   background taken from the middle of the luminance range behind each label. All of it passes
