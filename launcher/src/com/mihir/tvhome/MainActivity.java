@@ -287,6 +287,11 @@ public class MainActivity extends Activity {
         // A reading cached by the older text-only weather line has no icon: drop it and fetch again now.
         SharedPreferences wp = getPreferences(MODE_PRIVATE);
         if (wp.contains("weather_text")) wp.edit().remove("weather_text").remove("weather_tried").apply();
+        // A reading cached for another place (the location in config.xml changed) is stale: drop it and fetch again now.
+        String place = weatherLat + "," + weatherLon;
+        if (!place.equals(wp.getString("weather_place", null)))
+            wp.edit().remove("weather_line").remove("weather_at").remove("weather_tried").remove("weather_fails")
+                    .putString("weather_place", place).apply();
         calZone = IcsParser.zoneOr(getString(R.string.calendar_timezone), ZoneId.systemDefault());
         showEventTitles = getResources().getBoolean(R.bool.show_event_titles);
         showCountdown = getResources().getBoolean(R.bool.show_event_countdown);
